@@ -1,0 +1,70 @@
+{extend name="common/layout" /}
+
+{block name="content"}
+<div class="row">
+    <div class="col-md-12">
+        <div class="content-box">
+            <div class="row" style="margin-bottom: 15px;">
+                <div class="col-md-6">
+                    <h3 style="margin: 0; line-height: 34px;"><i class="fa fa-users"></i> 用户管理</h3>
+                </div>
+                <div class="col-md-6 text-right">
+                    <form class="form-inline" method="get">
+                        <input type="text" class="form-control input-sm" name="keyword" placeholder="搜索用户..." value="{$keyword}">
+                        <button type="submit" class="btn btn-sm btn-primary"><i class="fa fa-search"></i></button>
+                        <a href="{:url('index/admin/createUser')}" class="btn btn-sm btn-success"><i class="fa fa-plus"></i> 创建用户</a>
+                    </form>
+                </div>
+            </div>
+            <hr>
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>用户名</th>
+                        <th>邮箱</th>
+                        <th>角色</th>
+                        <th>存储使用</th>
+                        <th>状态</th>
+                        <th>注册时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {foreach $users as $user}
+                    <tr>
+                        <td>{$user.id}</td>
+                        <td>{$user.username}</td>
+                        <td>{$user.email|default='-'}</td>
+                        <td>{$user.roles_text|default='无'}</td>
+                        <td>
+                            <div class="storage-bar" style="width: 100px;">
+                                <div class="progress" style="width: {$user.storage_percent}%; background: {if $user.storage_percent > 90}#d9534f{elseif $user.storage_percent > 70}#f0ad4e{else}#5cb85c{/if};"></div>
+                            </div>
+                            <small>{$user.storage_used_text} / {$user.storage_quota_text}</small>
+                        </td>
+                        <td>
+                            {if $user.status == 1}<span class="label label-success">正常</span>
+                            {else}<span class="label label-danger">禁用</span>{/if}
+                        </td>
+                        <td>{$user.created_at}</td>
+                        <td>
+                            <a href="{:url('index/admin/editUser', ['user_id' => $user.id])}" class="btn btn-xs btn-info"><i class="fa fa-edit"></i> 编辑</a>
+                            <button class="btn btn-xs btn-danger" onclick="deleteUser({$user.id})"><i class="fa fa-trash"></i></button>
+                        </td>
+                    </tr>
+                    {/foreach}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+function deleteUser(id) {
+    layer.confirm('确定要删除这个用户吗？', {icon: 3}, function() {
+        ajaxPost('{:url("index/admin/deleteUser")}', {user_id: id});
+    });
+}
+</script>
+{/block}

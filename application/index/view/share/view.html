@@ -1,0 +1,37 @@
+{extend name="common/layout" /}
+
+{block name="content"}
+<div class="row">
+    <div class="col-md-6 col-md-offset-3">
+        <div class="content-box" style="margin-top: 50px;">
+            <h3 class="text-center"><i class="fa fa-file"></i> 文件详情</h3>
+            <hr>
+            <div class="text-center" style="padding: 30px;">
+                {if $share.file_type == 2}
+                <i class="fa fa-folder" style="font-size: 80px; color: #f0ad4e;"></i>
+                {else}
+                <i class="fa fa-file" style="font-size: 80px; color: #5bc0de;"></i>
+                {/if}
+                <h4>{$share.file_name}</h4>
+                {if $share.file_type == 1}
+                <p class="text-muted">文件大小: {$share.file_size_text}</p>
+                {/if}
+                <p class="text-muted">分享时间: {$share.created_at}</p>
+                {if $share.expire_time}
+                <p class="text-muted">过期时间: {$share.expire_time}</p>
+                {else}
+                <p class="text-muted">永久有效</p>
+                {/if}
+                <hr>
+                {if $share.file_type == 1}
+                <a href="{:url('index/share/download', ['token' => $share.token, 'password' => input('password')])}" class="btn btn-primary btn-lg">
+                    <i class="fa fa-download"></i> 下载文件
+                </a>
+                {else}
+                <p class="text-info">这是一个目录，无法直接下载</p>
+                {/if}
+            </div>
+        </div>
+    </div>
+</div>
+{/block}

@@ -1,0 +1,172 @@
+{extend name="common/layout" /}
+
+{block name="title"}我的文件 - 文件共享系统{/block}
+
+{block name="content"}
+<div class="row">
+    <div class="col-md-3">
+        <div class="sidebar">
+            <h4><i class="fa fa-hdd-o"></i> 存储空间</h4>
+            <div class="storage-bar">
+                <div class="progress progress-bar-striped active" style="width: {$user_info.storage_percent|default=0}%; background: {if $user_info.storage_percent > 90}#d9534f{elseif $user_info.storage_percent > 70}#f0ad4e{else}#5cb85c{/if};"></div>
+            </div>
+            <p class="text-muted" style="margin-top: 10px;">
+                已使用: {$user_info.storage_used_text|default='0 B'} / {$user_info.storage_quota_text|default='0 B'}
+                ({$user_info.storage_percent|default=0}%)
+            </p>
+            <hr>
+            <ul class="nav nav-pills nav-stacked">
+                <li class="active"><a href="{:url('index/file/index')}"><i class="fa fa-folder"></i> 全部文件</a></li>
+                <li><a href="{:url('index/share/index')}"><i class="fa fa-share-alt"></i> 我的分享</a></li>
+                <li><a href="{:url('index/share/sharedWithMe')}"><i class="fa fa-users"></i> 共享给我</a></li>
+                <li><a href="{:url('index/recycle/index')}"><i class="fa fa-trash"></i> 回收站</a></li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="col-md-9">
+        <div class="content-box">
+            <div class="row" style="margin-bottom: 15px;">
+                <div class="col-md-5">
+                    <h4 style="margin: 0; line-height: 34px;">
+                        {if $parent}
+                        <a href="{:url('index/file/index')}">全部文件</a> / {$parent.name}
+                        {else}
+                        <i class="fa fa-folder-open"></i> 全部文件
+                        {/if}
+                    </h4>
+                </div>
+                <div class="col-md-7 text-right">
+                    <form class="form-inline" method="get" action="{:url('index/file/index')}">
+                        <input type="hidden" name="parent_id" value="{$parent_id}">
+                        <div class="form-group">
+                            <input type="text" class="form-control input-sm" name="keyword" placeholder="搜索文件..." value="{$keyword}">
+                        </div>
+                        <button type="submit" class="btn btn-sm btn-primary"><i class="fa fa-search"></i></button>
+                    </form>
+                    <a href="{:url('index/file/createFolder', ['parent_id' => $parent_id])}" class="btn btn-sm btn-success">
+                        <i class="fa fa-folder"></i> 新建目录
+                    </a>
+                    <a href="{:url('index/file/upload', ['parent_id' => $parent_id])}" class="btn btn-sm btn-info">
+                        <i class="fa fa-upload"></i> 上传文件
+                    </a>
+                </div>
+            </div>
+
+            <div id="batchBar" style="margin-bottom: 10px; display: none;">
+                <span class="text-muted">已选 <b id="selCount">0</b> 项</span>
+                <button type="button" class="btn btn-xs btn-warning" onclick="batchMove()"><i class="fa fa-arrows"></i> 移动</button>
+                <button type="button" class="btn btn-xs btn-primary" onclick="batchZip()"><i class="fa fa-file-archive-o"></i> 打包下载</button>
+                <button type="button" class="btn btn-xs btn-danger" onclick="batchDelete()"><i class="fa fa-trash"></i> 删除</button>
+                <button type="button" class="btn btn-xs btn-default" onclick="clearSelect()">取消选择</button>
+            </div>
+
+            {if $files}
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th width="40"><input type="checkbox" id="checkAll"></th>
+                        <th>名称</th>
+                        <th width="100">大小</th>
+                        <th width="160">修改时间</th>
+                        <th width="260">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {foreach $files as $file}
+                    <tr class="file-item" data-id="{$file.id}" data-type="{$file.type}">
+                        <td><input type="checkbox" class="file-check" value="{$file.id}"></td>
+                        <td>
+                            {if $file.type == 2}
+                            <i class="fa fa-folder file-icon folder"></i>
+                            <a class="file-name" href="{:url('index/file/index')}?parent_id={$file.id}">{$file.name}</a>
+                            {else}
+                            <i class="fa fa-file file-icon file"></i>
+                            <a class="file-name" href="{:url('index/file/detail', ['file_id' => $file.id])}">{$file.name}</a>
+                            {/if}
+                        </td>
+                        <td>{$file.size_text|default='-'}</td>
+                        <td>{$file.created_at}</td>
+                        <td>
+                            {if $file.type == 1}
+                            {if is_previewable_extension($file.extension)}
+                            <a href="{:url('index/file/preview', ['file_id' => $file.id])}" class="btn btn-xs btn-success btn-action" title="预览"><i class="fa fa-eye"></i></a>
+                            {/if}
+                            <a href="{:url('index/file/download', ['file_id' => $file.id])}" class="btn btn-xs btn-primary btn-action" title="下载"><i class="fa fa-download"></i></a>
+                            <a href="{:url('index/share/create', ['file_id' => $file.id])}" class="btn btn-xs btn-warning btn-action" title="分享"><i class="fa fa-share"></i></a>
+                            {else}
+                            <a href="{:url('index/file/detail', ['file_id' => $file.id])}" class="btn btn-xs btn-default btn-action" title="详情"><i class="fa fa-info-circle"></i></a>
+                            {/if}
+                            <a href="{:url('index/file/rename', ['file_id' => $file.id])}" class="btn btn-xs btn-info btn-action" title="重命名"><i class="fa fa-edit"></i></a>
+                            <button class="btn btn-xs btn-danger btn-action" title="删除" onclick="deleteFile({$file.id})"><i class="fa fa-trash"></i></button>
+                        </td>
+                    </tr>
+                    {/foreach}
+                </tbody>
+            </table>
+            {else}
+            <div class="text-center" style="padding: 50px;">
+                <i class="fa fa-folder-open" style="font-size: 64px; color: #ddd;"></i>
+                <p class="text-muted">暂无文件</p>
+            </div>
+            {/if}
+        </div>
+    </div>
+</div>
+
+{/block}
+
+{block name="script"}
+<script>
+function selectedIds() {
+    var ids = [];
+    $('.file-check:checked').each(function() { ids.push($(this).val()); });
+    return ids;
+}
+
+function updateBatchBar() {
+    var n = selectedIds().length;
+    $('#selCount').text(n);
+    $('#batchBar').toggle(n > 0);
+}
+
+function clearSelect() {
+    $('.file-check').prop('checked', false);
+    updateBatchBar();
+}
+
+function batchMove() {
+    var ids = selectedIds();
+    if (!ids.length) { layer.msg('请先勾选文件', {icon: 0}); return; }
+    location.href = '{:url("index/file/move")}?' + ids.map(function(i) { return 'file_ids[]=' + i; }).join('&');
+}
+
+function batchZip() {
+    var ids = selectedIds();
+    if (!ids.length) { layer.msg('请先勾选文件', {icon: 0}); return; }
+    location.href = '{:url("index/file/downloadZip")}?' + ids.map(function(i) { return 'file_ids[]=' + i; }).join('&');
+}
+
+function batchDelete() {
+    var ids = selectedIds();
+    if (!ids.length) { layer.msg('请先勾选文件', {icon: 0}); return; }
+    layer.confirm('确定要删除选中的 ' + ids.length + ' 项吗？文件将移入回收站', {icon: 3}, function() {
+        ajaxPost('{:url("index/file/delete")}', {file_ids: ids});
+    });
+}
+
+$(function() {
+    $('#checkAll').on('change', function() {
+        $('.file-check').prop('checked', this.checked);
+        updateBatchBar();
+    });
+    $('.file-check').on('change', updateBatchBar);
+});
+
+function deleteFile(id) {
+    layer.confirm('确定要删除吗？文件将移入回收站', {icon: 3}, function() {
+        ajaxPost('{:url("index/file/delete")}', {file_ids: [id]});
+    });
+}
+</script>
+{/block}

@@ -1,0 +1,53 @@
+{extend name="common/layout" /}
+
+{block name="content"}
+<div class="row">
+    <div class="col-md-8 col-md-offset-2">
+        <div class="content-box">
+            <h3><i class="fa fa-info-circle"></i> 文件详情</h3>
+            <hr>
+            <table class="table">
+                <tr>
+                    <th width="150">
+                        {if $file.type == 2}
+                        <i class="fa fa-folder file-icon folder"></i> 目录
+                        {else}
+                        <i class="fa fa-file file-icon file"></i> 文件
+                        {/if}
+                    </th>
+                    <td>{$file.name}</td>
+                </tr>
+                {if $file.type == 1}
+                <tr><th>文件大小</th><td>{$file.size_text}</td></tr>
+                <tr><th>MIME类型</th><td>{$file.mime_type}</td></tr>
+                <tr><th>扩展名</th><td>.{$file.extension}</td></tr>
+                <tr><th>下载次数</th><td>{$file.download_count}</td></tr>
+                {/if}
+                <tr><th>创建时间</th><td>{$file.created_at}</td></tr>
+                <tr><th>修改时间</th><td>{$file.updated_at}</td></tr>
+            </table>
+            <hr>
+            <div class="text-center">
+                {if $file.type == 1}
+                {if is_previewable_extension($file.extension)}
+                <a href="{:url('index/file/preview', ['file_id' => $file.id])}" class="btn btn-success"><i class="fa fa-eye"></i> 预览</a>
+                {/if}
+                <a href="{:url('index/file/download', ['file_id' => $file.id])}" class="btn btn-primary"><i class="fa fa-download"></i> 下载</a>
+                <a href="{:url('index/share/create', ['file_id' => $file.id])}" class="btn btn-warning"><i class="fa fa-share"></i> 分享</a>
+                {/if}
+                <a href="{:url('index/file/rename', ['file_id' => $file.id])}" class="btn btn-info"><i class="fa fa-edit"></i> 重命名</a>
+                <button class="btn btn-danger" onclick="deleteFile({$file.id})"><i class="fa fa-trash"></i> 删除</button>
+                <a href="{:url('index/file/index')}" class="btn btn-default">返回</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function deleteFile(id) {
+    layer.confirm('确定要删除吗？文件将移入回收站', {icon: 3}, function() {
+        ajaxPost('{:url("index/file/delete")}', {file_ids: [id]});
+    });
+}
+</script>
+{/block}

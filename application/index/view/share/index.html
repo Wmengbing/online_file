@@ -1,0 +1,65 @@
+{extend name="common/layout" /}
+
+{block name="content"}
+<div class="row">
+    <div class="col-md-8 col-md-offset-2">
+        <div class="content-box">
+            <h3><i class="fa fa-share-alt"></i> 我的分享</h3>
+            <hr>
+            {if $shares}
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>文件名</th>
+                        <th>提取码</th>
+                        <th>过期时间</th>
+                        <th>浏览/下载</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {foreach $shares as $share}
+                    <tr>
+                        <td>{$share.file_name}</td>
+                        <td>{$share.password|default='无'}</td>
+                        <td>{$share.expire_time|default='永久'}</td>
+                        <td>{$share.view_count} / {$share.download_count}</td>
+                        <td>
+                            {if $share.status == 1}<span class="label label-success">正常</span>
+                            {elseif $share.status == 2}<span class="label label-warning">已过期</span>
+                            {else}<span class="label label-danger">已禁用</span>{/if}
+                        </td>
+                        <td>
+                            <a href="{$share.share_url}" target="_blank" class="btn btn-xs btn-primary"><i class="fa fa-external-link"></i> 访问</a>
+                            <button class="btn btn-xs btn-warning" onclick="toggleStatus({$share.id})">
+                                {if $share.status == 1}<i class="fa fa-ban"></i> 禁用{else}<i class="fa fa-check"></i> 启用{/if}
+                            </button>
+                            <button class="btn btn-xs btn-danger" onclick="deleteShare({$share.id})"><i class="fa fa-trash"></i></button>
+                        </td>
+                    </tr>
+                    {/foreach}
+                </tbody>
+            </table>
+            {else}
+            <div class="text-center" style="padding: 50px;">
+                <i class="fa fa-share-alt" style="font-size: 64px; color: #ddd;"></i>
+                <p class="text-muted">暂无分享</p>
+            </div>
+            {/if}
+        </div>
+    </div>
+</div>
+
+<script>
+function deleteShare(id) {
+    layer.confirm('确定要删除这个分享链接吗？', {icon: 3}, function() {
+        ajaxPost('{:url("index/share/delete")}', {share_id: id});
+    });
+}
+
+function toggleStatus(id) {
+    ajaxPost('{:url("index/share/toggleStatus")}', {share_id: id});
+}
+</script>
+{/block}

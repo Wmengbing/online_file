@@ -1,0 +1,115 @@
+{extend name="common/layout" /}
+
+{block name="content"}
+<div class="row">
+    <div class="col-md-12">
+        <div class="content-box">
+            <h3><i class="fa fa-hdd-o"></i> 存储管理</h3>
+            <hr>
+            <div class="row" style="margin-bottom: 20px;">
+                <div class="col-md-3">
+                    <div class="panel panel-info">
+                        <div class="panel-heading">总用户数</div>
+                        <div class="panel-body">
+                            <h2>{$total_users}</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="panel panel-info">
+                        <div class="panel-heading">总文件数</div>
+                        <div class="panel-body">
+                            <h2>{$total_files}</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="panel panel-info">
+                        <div class="panel-heading">总存储使用</div>
+                        <div class="panel-body">
+                            <h2>{$total_used}</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="panel panel-info">
+                        <div class="panel-heading">总存储配额</div>
+                        <div class="panel-body">
+                            <h2>{$total_quota}</h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <hr>
+            <h4>用户存储详情</h4>
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>用户名</th>
+                        <th>存储使用</th>
+                        <th>存储配额</th>
+                        <th>使用率</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {foreach $users as $user}
+                    <tr>
+                        <td>{$user.username}</td>
+                        <td>{$user.storage_used_text}</td>
+                        <td>{$user.storage_quota_text}</td>
+                        <td>
+                            <div class="storage-bar" style="width: 150px;">
+                                <div class="progress" style="width: {$user.storage_percent}%; background: {if $user.storage_percent > 90}#d9534f{elseif $user.storage_percent > 70}#f0ad4e{else}#5cb85c{/if};"></div>
+                            </div>
+                            <small>{$user.storage_percent}%</small>
+                        </td>
+                        <td>
+                            <button class="btn btn-xs btn-warning" onclick="updateQuota({$user.id}, '{$user.storage_quota}')"><i class="fa fa-edit"></i> 修改配额</button>
+                        </td>
+                    </tr>
+                    {/foreach}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="quotaModal">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="quotaForm">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal">&times;</button>
+                    <h4 class="modal-title">修改存储配额</h4>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="user_id" id="quotaUserId">
+                    <div class="form-group">
+                        <label>存储配额 (字节)</label>
+                        <input type="number" class="form-control" name="quota" id="quotaValue" required>
+                        <small class="text-muted">1GB = 1073741824字节, 10GB = 10737418240字节</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function updateQuota(userId, currentQuota) {
+    $('#quotaUserId').val(userId);
+    $('#quotaValue').val(currentQuota);
+    $('#quotaModal').modal('show');
+}
+
+$('#quotaForm').on('submit', function(e) {
+    e.preventDefault();
+    ajaxPost('{:url("index/admin/updateQuota")}', $(this).serialize());
+});
+</script>
+{/block}

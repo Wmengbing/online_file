@@ -1,0 +1,127 @@
+<?php
+namespace app\common;
+
+use think\Response;
+
+/**
+ * 支持 HTTP Range 断点续传的文件流响应。
+ * 在 Response 的 send() 阶段输出,避免框架默认 Content-Type 覆盖;
+ * 可附带临时文件,在输出完成后自动清理。
+ */
+class StreamResponse extends Response
+{
+    protected $filePath;
+    protected $downloadName;
+    protected $inline;
+    protected $cleanupPaths = [];
+
+    public function __construct($filePath, $downloadName = '', $inline = false, $mime = '', $cleanup = [])
+    {
+        $this->filePath     = $filePath;
+        $this->downloadName = $downloadName;
+        $this->inline       = $inline;
+        $this->cleanupPaths = (array)$cleanup;
+
+        parent::__construct('', 200);
+
+        if ($mime === '') {
+            $mime = get_mime_type($filePath) ?: 'application/octet-stream';
+        }
+        // 父类构造会用默认 text/html 覆盖 Content-Type,须在之后重新指定
+        $this->contentType($mime);
+    }
+
+    /**
+     * 输出文件内容
+     */
+    public function send()
+    {
+        $path = $this->filePath;
+        $size = (int)@filesize($path);
+
+        if (!is_file($path) || !is_readable($path)) {
+            $this->code = 404;
+            $this->header['Content-Type'] = 'text/plain; charset=utf-8';
+            return parent::send();
+        }
+
+        $start = 0;
+        $end   = $size - 1;
+        $range = false;
+
+        $rawRange = isset($_SERVER['HTTP_RANGE']) ? $_SERVER['HTTP_RANGE'] : '';
+        if ($rawRange && preg_match('/bytes=(\d*)-(\d*)/', $rawRange, $m)) {
+            $range = true;
+            $start = $m[1] !== '' ? (int)$m[1] : null;
+            $end   = $m[2] !== '' ? (int)$m[2] : null;
+            if ($start === null) {
+                $start = max(0, $size - $end);
+                $end   = $size - 1;
+            }
+            if ($start >= $size) {
+                // 请求范围越界
+                $this->code = 416;
+                $this->header['Content-Range'] = 'bytes */' . $size;
+                $this->header['Content-Type'] = 'text/plain; charset=utf-8';
+                return parent::send();
+            }
+            if ($end === null || $end >= $size) {
+                $end = $size - 1;
+            }
+            if ($start > $end) {
+                $end = $start;
+            }
+        }
+
+        $name = $this->downloadName !== '' ? $this->downloadName : basename($path);
+
+        $this->header['Accept-Ranges'] = 'bytes';
+        $this->header['Cache-Control'] = 'private, max-age=0, must-revalidate';
+        $this->header['Pragma']        = 'public';
+        $this->header['X-Content-Type-Options'] = 'nosniff';
+        $this->header['Content-Disposition'] = ($this->inline ? 'inline' : 'attachment')
+            . '; filename="' . rawurlencode($name) . '"; filename*=UTF-8\'\'' . rawurlencode($name);
+
+        if ($range) {
+            $this->code = 206;
+            $this->header['Content-Range'] = 'bytes ' . $start . '-' . $end . '/' . $size;
+            $this->header['Content-Length'] = (string)($end - $start + 1);
+        } else {
+            $this->code = 200;
+            $this->header['Content-Length'] = (string)$size;
+        }
+
+        // 清空框架/调试的输出缓冲,保证后续只输出文件流
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        $result = parent::send();
+
+        $fp = @fopen($path, 'rb');
+        if ($fp) {
+            if ($start > 0) {
+                fseek($fp, $start);
+            }
+            $remaining = $end - $start + 1;
+            while (!feof($fp) && $remaining > 0) {
+                $buf = fread($fp, min(8 * 1024 * 1024, $remaining));
+                if ($buf === false || $buf === '') {
+                    break;
+                }
+                echo $buf;
+                $remaining -= strlen($buf);
+                if (connection_aborted()) {
+                    break;
+                }
+            }
+            fclose($fp);
+        }
+
+        foreach ($this->cleanupPaths as $tmp) {
+            @unlink($tmp);
+        }
+
+        return $result;
+    }
+}

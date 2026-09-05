@@ -1,0 +1,39 @@
+{extend name="common/layout" /}
+
+{block name="content"}
+<div class="row">
+    <div class="col-md-8 col-md-offset-2">
+        <div class="content-box">
+            <h3><i class="fa fa-plus"></i> 创建异步任务</h3>
+            <hr>
+            <form method="post" action="{:url('index/admin/createTask')}">
+                <div class="form-group">
+                    <label>任务名称 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" name="name" required>
+                </div>
+                <div class="form-group">
+                    <label>任务类型 <span class="text-danger">*</span></label>
+                    <select class="form-control" name="type" required>
+                        <option value="file_scan">文件扫描</option>
+                        <option value="recycle_clean">回收站清理</option>
+                        <option value="storage_stat">存储统计</option>
+                        <option value="custom">自定义任务</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>任务参数 (JSON格式)</label>
+                    <textarea class="form-control" name="params" rows="5">{}</textarea>
+                    <small class="text-muted">JSON格式的参数配置</small>
+                </div>
+                <div class="form-group">
+                    <label>执行时间</label>
+                    <input type="datetime-local" class="form-control" name="execute_at">
+                    <small class="text-muted">留空表示立即执行</small>
+                </div>
+                <button type="submit" class="btn btn-primary"><i class="fa fa-save"></i> 创建</button>
+                <a href="{:url('index/admin/tasks')}" class="btn btn-default">返回</a>
+            </form>
+        </div>
+    </div>
+</div>
+{/block}

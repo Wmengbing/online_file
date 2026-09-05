@@ -1,0 +1,27 @@
+{extend name="common/layout" /}
+
+{block name="content"}
+<div class="row">
+    <div class="col-md-6 col-md-offset-3">
+        <div class="content-box">
+            <h3><i class="fa fa-arrows"></i> 移动文件</h3>
+            <hr>
+            <form method="post" action="{:url('index/file/move')}">
+                {foreach $file_ids as $fid}
+                <input type="hidden" name="file_ids[]" value="{$fid}">
+                {/foreach}
+                <div class="form-group">
+                    <label>选择目标目录</label>
+                    <select class="form-control" name="target_parent_id">
+                        <option value="0">根目录</option>
+                        {foreach $folders as $folder}
+                        <option value="{$folder.id}">{$folder.name}</option>
+                        {/foreach}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block"><i class="fa fa-save"></i> 移动</button>
+            </form>
+        </div>
+    </div>
+</div>
+{/block}

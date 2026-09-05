@@ -1,0 +1,98 @@
+{extend name="common/layout" /}
+
+{block name="content"}
+<div class="row">
+    <div class="col-md-8 col-md-offset-2">
+        <div class="content-box">
+            <div class="row" style="margin-bottom: 15px;">
+                <div class="col-md-6">
+                    <h3 style="margin: 0; line-height: 34px;"><i class="fa fa-trash"></i> 回收站</h3>
+                </div>
+                <div class="col-md-6 text-right">
+                    <button class="btn btn-sm btn-danger" onclick="clearRecycle()"><i class="fa fa-trash"></i> 清空回收站</button>
+                </div>
+            </div>
+            <hr>
+            {if $recycle_list}
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" id="checkAll"></th>
+                        <th>文件名</th>
+                        <th>大小</th>
+                        <th>删除时间</th>
+                        <th>剩余天数</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {foreach $recycle_list as $item}
+                    <tr>
+                        <td><input type="checkbox" class="recycle-check" value="{$item.id}"></td>
+                        <td>
+                            {if $item.file_type == 2}<i class="fa fa-folder" style="color: #f0ad4e;"></i>{else}<i class="fa fa-file" style="color: #5bc0de;"></i>{/if}
+                            {$item.file_name}
+                        </td>
+                        <td>{$item.file_size_text|default='-'}</td>
+                        <td>{$item.deleted_at}</td>
+                        <td>{$item.days_left} 天</td>
+                        <td>
+                            <button class="btn btn-xs btn-success" onclick="restoreFile({$item.id})"><i class="fa fa-undo"></i> 还原</button>
+                            <button class="btn btn-xs btn-danger" onclick="permanentDelete({$item.id})"><i class="fa fa-trash"></i> 彻底删除</button>
+                        </td>
+                    </tr>
+                    {/foreach}
+                </tbody>
+            </table>
+            <div style="margin-top: 15px;">
+                <button class="btn btn-sm btn-success" onclick="restoreSelected()"><i class="fa fa-undo"></i> 还原选中</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteSelected()"><i class="fa fa-trash"></i> 彻底删除选中</button>
+            </div>
+            {else}
+            <div class="text-center" style="padding: 50px;">
+                <i class="fa fa-trash" style="font-size: 64px; color: #ddd;"></i>
+                <p class="text-muted">回收站为空</p>
+            </div>
+            {/if}
+        </div>
+    </div>
+</div>
+
+<script>
+$('#checkAll').on('change', function() {
+    $('.recycle-check').prop('checked', this.checked);
+});
+
+function restoreFile(id) {
+    ajaxPost('{:url("index/recycle/restore")}', {recycle_ids: [id]});
+}
+
+function permanentDelete(id) {
+    layer.confirm('确定要彻底删除吗？此操作不可恢复！', {icon: 0}, function() {
+        ajaxPost('{:url("index/recycle/permanentDelete")}', {recycle_ids: [id]});
+    });
+}
+
+function restoreSelected() {
+    var ids = [];
+    $('.recycle-check:checked').each(function() { ids.push($(this).val()); });
+    if (ids.length == 0) { layer.msg('请选择要还原的文件', {icon: 0}); return; }
+    ajaxPost('{:url("index/recycle/restore")}', {recycle_ids: ids});
+}
+
+function deleteSelected() {
+    var ids = [];
+    $('.recycle-check:checked').each(function() { ids.push($(this).val()); });
+    if (ids.length == 0) { layer.msg('请选择要删除的文件', {icon: 0}); return; }
+    layer.confirm('确定要彻底删除选中的文件吗？此操作不可恢复！', {icon: 0}, function() {
+        ajaxPost('{:url("index/recycle/permanentDelete")}', {recycle_ids: ids});
+    });
+}
+
+function clearRecycle() {
+    layer.confirm('确定要清空回收站吗？此操作不可恢复！', {icon: 0}, function() {
+        ajaxPost('{:url("index/recycle/clear")}', {});
+    });
+}
+</script>
+{/block}
