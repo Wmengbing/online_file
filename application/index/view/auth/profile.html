@@ -1,10 +1,68 @@
 {extend name="common/layout" /}
 
 {block name="content"}
-<div class="row">
+<style>
+    .profile-shell {
+        display: flex;
+        justify-content: center;
+    }
+    .profile-card {
+        width: 100%;
+        max-width: 760px;
+        background: rgba(255,255,255,0.96);
+        border: 1px solid rgba(226,232,240,0.95);
+        border-radius: 22px;
+        box-shadow: 0 24px 50px rgba(15,23,42,0.08);
+        padding: 26px 24px 22px;
+    }
+    .profile-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+    .profile-header h3 {
+        margin: 0;
+        font-weight: 700;
+        color: #0f172a;
+    }
+    .profile-header h3 .fa {
+        color: var(--primary);
+        margin-right: 8px;
+    }
+    .profile-card .form-group {
+        margin-bottom: 18px;
+    }
+    .profile-card label {
+        color: #475569;
+        font-weight: 600;
+        margin-bottom: 8px;
+    }
+    .profile-card .form-control[disabled] {
+        background: #f8fafc;
+    }
+    .profile-card .storage-bar {
+        height: 18px;
+        margin-bottom: 8px;
+    }
+    .profile-meta {
+        color: #64748b;
+        margin: 8px 0;
+    }
+    .profile-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 14px;
+    }
+</style>
+<div class="row profile-shell">
     <div class="col-md-8 col-md-offset-2">
-        <div class="content-box">
-            <h3><i class="fa fa-user"></i> 个人资料</h3>
+        <div class="profile-card">
+            <div class="profile-header">
+                <h3><i class="fa fa-user"></i> 个人资料</h3>
+            </div>
             <hr>
             <form method="post" action="{:url('index/auth/profile')}">
                 <div class="form-group">
@@ -20,16 +78,18 @@
                     <input type="text" class="form-control" name="phone" value="{$user.phone}">
                 </div>
                 <hr>
-                <h4>存储使用情况</h4>
+                <h4 style="margin-top:0; font-weight:700; color:#0f172a;">存储使用情况</h4>
                 <div class="storage-bar">
-                    <div class="progress progress-bar-striped active" style="width: {$user.storage_percent}%; background: {if $user.storage_percent > 90}#d9534f{elseif $user.storage_percent > 70}#f0ad4e{else}#5cb85c{/if};"></div>
+                    <div class="progress progress-bar-striped active" style="width: {$user.storage_percent}%; background: {if $user.storage_percent > 90}#ef4444{elseif $user.storage_percent > 70}#f59e0b{else}#10b981{/if};"></div>
                 </div>
-                <p class="text-muted">已使用: {$user.storage_used_text} / {$user.storage_quota_text} ({$user.storage_percent}%)</p>
+                <p class="profile-meta">已使用: {$user.storage_used_text} / {$user.storage_quota_text} ({$user.storage_percent}%)</p>
                 <hr>
-                <p class="text-muted">注册时间: {$user.created_at}</p>
-                <p class="text-muted">最后登录: {$user.last_login_time|default='-'}</p>
-                <button type="submit" class="btn btn-primary"><i class="fa fa-save"></i> 保存</button>
-                <a href="{:url('index/file/index')}" class="btn btn-default">返回</a>
+                <p class="profile-meta">注册时间: {$user.created_at}</p>
+                <p class="profile-meta">最后登录: {$user.last_login_time|default='-'}</p>
+                <div class="profile-actions">
+                    <button type="submit" class="btn btn-primary"><i class="fa fa-save"></i> 保存</button>
+                    <a href="{:url('index/file/index')}" class="btn btn-default">返回</a>
+                </div>
             </form>
         </div>
     </div>

@@ -1,13 +1,66 @@
 {extend name="common/layout" /}
 
 {block name="content"}
+<style>
+    .page-header-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 18px;
+    }
+    .page-header-row h3 {
+        margin: 0;
+        font-weight: 700;
+        color: #0f172a;
+    }
+    .page-header-row h3 .fa {
+        color: var(--primary);
+        margin-right: 8px;
+    }
+    .share-status {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        line-height: 1;
+        font-weight: 700;
+    }
+    .share-status.success {
+        background: rgba(16,185,129,0.12);
+        color: #047857;
+    }
+    .share-status.warning {
+        background: rgba(245,158,11,0.12);
+        color: #b45309;
+    }
+    .share-status.danger {
+        background: rgba(239,68,68,0.12);
+        color: #b91c1c;
+    }
+    .share-table td, .share-table th {
+        vertical-align: middle;
+    }
+    .share-empty {
+        text-align: center;
+        padding: 56px 20px 30px;
+    }
+    .share-empty .fa {
+        font-size: 64px;
+        color: rgba(148, 163, 184, 0.7);
+        margin-bottom: 12px;
+    }
+</style>
 <div class="row">
     <div class="col-md-8 col-md-offset-2">
         <div class="content-box">
-            <h3><i class="fa fa-share-alt"></i> 我的分享</h3>
+            <div class="page-header-row">
+                <h3><i class="fa fa-share-alt"></i> 我的分享</h3>
+            </div>
             <hr>
             {if $shares}
-            <table class="table table-hover">
+            <table class="table table-hover share-table">
                 <thead>
                     <tr>
                         <th>文件名</th>
@@ -26,9 +79,9 @@
                         <td>{$share.expire_time|default='永久'}</td>
                         <td>{$share.view_count} / {$share.download_count}</td>
                         <td>
-                            {if $share.status == 1}<span class="label label-success">正常</span>
-                            {elseif $share.status == 2}<span class="label label-warning">已过期</span>
-                            {else}<span class="label label-danger">已禁用</span>{/if}
+                            {if $share.status == 1}<span class="share-status success">正常</span>
+                            {elseif $share.status == 2}<span class="share-status warning">已过期</span>
+                            {else}<span class="share-status danger">已禁用</span>{/if}
                         </td>
                         <td>
                             <a href="{$share.share_url}" target="_blank" class="btn btn-xs btn-primary"><i class="fa fa-external-link"></i> 访问</a>
@@ -42,8 +95,8 @@
                 </tbody>
             </table>
             {else}
-            <div class="text-center" style="padding: 50px;">
-                <i class="fa fa-share-alt" style="font-size: 64px; color: #ddd;"></i>
+            <div class="share-empty">
+                <i class="fa fa-share-alt"></i>
                 <p class="text-muted">暂无分享</p>
             </div>
             {/if}

@@ -1,19 +1,70 @@
 {extend name="common/layout" /}
 
 {block name="content"}
+<style>
+    .admin-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 18px;
+    }
+    .admin-toolbar h3 {
+        margin: 0;
+        font-weight: 700;
+        color: #0f172a;
+    }
+    .admin-toolbar h3 .fa {
+        color: var(--primary);
+        margin-right: 8px;
+    }
+    .admin-search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .admin-search .form-control {
+        min-width: 220px;
+    }
+    .status-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        line-height: 1;
+        font-weight: 700;
+    }
+    .status-pill.success {
+        background: rgba(16,185,129,0.12);
+        color: #047857;
+    }
+    .status-pill.danger {
+        background: rgba(239,68,68,0.12);
+        color: #b91c1c;
+    }
+    .user-storage {
+        min-width: 120px;
+    }
+    .user-storage .storage-bar {
+        width: 100%;
+        margin-bottom: 4px;
+    }
+    .user-storage small {
+        color: #64748b;
+    }
+</style>
 <div class="row">
     <div class="col-md-12">
         <div class="content-box">
-            <div class="row" style="margin-bottom: 15px;">
-                <div class="col-md-6">
-                    <h3 style="margin: 0; line-height: 34px;"><i class="fa fa-users"></i> 用户管理</h3>
-                </div>
-                <div class="col-md-6 text-right">
+            <div class="admin-toolbar">
+                <h3><i class="fa fa-users"></i> 用户管理</h3>
+                <div class="admin-search">
                     <form class="form-inline" method="get">
                         <input type="text" class="form-control input-sm" name="keyword" placeholder="搜索用户..." value="{$keyword}">
                         <button type="submit" class="btn btn-sm btn-primary"><i class="fa fa-search"></i></button>
-                        <a href="{:url('index/admin/createUser')}" class="btn btn-sm btn-success"><i class="fa fa-plus"></i> 创建用户</a>
                     </form>
+                    <a href="{:url('index/admin/createUser')}" class="btn btn-sm btn-success"><i class="fa fa-plus"></i> 创建用户</a>
                 </div>
             </div>
             <hr>
@@ -37,15 +88,15 @@
                         <td>{$user.username}</td>
                         <td>{$user.email|default='-'}</td>
                         <td>{$user.roles_text|default='无'}</td>
-                        <td>
-                            <div class="storage-bar" style="width: 100px;">
-                                <div class="progress" style="width: {$user.storage_percent}%; background: {if $user.storage_percent > 90}#d9534f{elseif $user.storage_percent > 70}#f0ad4e{else}#5cb85c{/if};"></div>
+                        <td class="user-storage">
+                            <div class="storage-bar">
+                                <div class="progress" style="width: {$user.storage_percent}%; background: {if $user.storage_percent > 90}#ef4444{elseif $user.storage_percent > 70}#f59e0b{else}#10b981{/if};"></div>
                             </div>
                             <small>{$user.storage_used_text} / {$user.storage_quota_text}</small>
                         </td>
                         <td>
-                            {if $user.status == 1}<span class="label label-success">正常</span>
-                            {else}<span class="label label-danger">禁用</span>{/if}
+                            {if $user.status == 1}<span class="status-pill success">正常</span>
+                            {else}<span class="status-pill danger">禁用</span>{/if}
                         </td>
                         <td>{$user.created_at}</td>
                         <td>

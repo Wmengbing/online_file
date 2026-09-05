@@ -1,15 +1,82 @@
 {extend name="common/layout" /}
 
 {block name="content"}
-<div class="row">
+<style>
+    .share-form-shell {
+        min-height: calc(100vh - 180px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px 0;
+    }
+    .share-form-card {
+        width: 100%;
+        max-width: 560px;
+        background: rgba(255,255,255,0.96);
+        border: 1px solid rgba(226,232,240,0.95);
+        border-radius: 22px;
+        box-shadow: 0 24px 50px rgba(15,23,42,0.10);
+        padding: 28px 26px 22px;
+        position: relative;
+        overflow: hidden;
+    }
+    .share-form-card:before {
+        content: "";
+        position: absolute;
+        inset: 0 auto auto 0;
+        width: 220px;
+        height: 220px;
+        background: radial-gradient(circle, rgba(59,130,246,0.14), rgba(59,130,246,0));
+    }
+    .share-form-card > * { position: relative; z-index: 1; }
+    .share-form-card h3 {
+        margin: 0 0 18px;
+        font-weight: 700;
+        color: #0f172a;
+    }
+    .share-form-card h3 .fa {
+        color: var(--primary);
+        margin-right: 8px;
+    }
+    .share-form-card .form-group {
+        margin-bottom: 18px;
+    }
+    .share-form-card label {
+        color: #475569;
+        font-weight: 600;
+        margin-bottom: 8px;
+    }
+    .share-form-card .checkbox-inline {
+        font-weight: 500;
+    }
+    .share-form-card .btn-block {
+        width: 100%;
+        min-height: 44px;
+    }
+    .modal-content {
+        border: none;
+        border-radius: 18px;
+        box-shadow: 0 24px 50px rgba(15,23,42,0.12);
+    }
+    .modal-header {
+        border-bottom: 1px solid #edf2f7;
+        background: #f8fafc;
+        border-radius: 18px 18px 0 0;
+    }
+    .modal-title {
+        font-weight: 700;
+        color: #0f172a;
+    }
+</style>
+<div class="row share-form-shell">
     <div class="col-md-6 col-md-offset-3">
-        <div class="content-box">
+        <div class="share-form-card">
             <h3><i class="fa fa-share"></i> 创建分享链接</h3>
             <hr>
             <form id="shareForm">
                 <input type="hidden" name="file_id" value="{$file_id}">
                 <div class="form-group">
-                    <label>
+                    <label class="checkbox-inline">
                         <input type="checkbox" name="has_password" value="1"> 设置提取码
                     </label>
                 </div>

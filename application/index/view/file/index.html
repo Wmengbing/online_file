@@ -3,14 +3,129 @@
 {block name="title"}我的文件 - 文件共享系统{/block}
 
 {block name="content"}
-<div class="row">
-    <div class="col-md-3">
-        <div class="sidebar">
+<style>
+    .file-layout {
+        display: flex;
+        gap: 24px;
+        align-items: flex-start;
+    }
+    .file-sidebar {
+        width: 290px;
+        flex-shrink: 0;
+    }
+    .file-main {
+        flex: 1;
+        min-width: 0;
+    }
+    .storage-card {
+        background: rgba(255,255,255,0.96);
+        border: 1px solid rgba(226,232,240,0.9);
+        border-radius: 20px;
+        box-shadow: 0 18px 40px rgba(15,23,42,0.06);
+        padding: 18px 18px 14px;
+    }
+    .storage-card h4 {
+        margin: 0 0 12px;
+        font-weight: 700;
+        color: #0f172a;
+    }
+    .storage-card h4 .fa {
+        color: var(--primary);
+        margin-right: 8px;
+    }
+    .storage-card .storage-bar {
+        margin-bottom: 10px;
+    }
+    .storage-card .text-muted {
+        margin-top: 10px;
+        font-size: 13px;
+        line-height: 1.8;
+    }
+    .file-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 18px;
+    }
+    .file-path {
+        font-size: 16px;
+        margin: 0;
+        color: #0f172a;
+        font-weight: 700;
+        line-height: 1.5;
+    }
+    .file-path .fa {
+        color: var(--primary);
+        margin-right: 8px;
+    }
+    .file-path a {
+        color: #475569;
+    }
+    .file-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .file-search {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .file-search .form-control {
+        min-width: 180px;
+    }
+    .batch-bar {
+        display: none;
+        margin-bottom: 14px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: #f8fbff;
+        border: 1px solid #e1edff;
+        color: #475569;
+    }
+    .batch-bar .text-muted {
+        margin-right: 10px;
+    }
+    .batch-bar .btn {
+        margin-right: 6px;
+    }
+    .empty-state {
+        text-align: center;
+        padding: 58px 30px 32px;
+    }
+    .empty-state .fa {
+        font-size: 64px;
+        color: rgba(148, 163, 184, 0.7);
+        margin-bottom: 12px;
+    }
+    @media (max-width: 991px) {
+        .file-layout {
+            display: block;
+        }
+        .file-sidebar {
+            width: 100%;
+            margin-bottom: 20px;
+        }
+        .file-toolbar {
+            display: block;
+        }
+        .file-actions {
+            justify-content: flex-start;
+            margin-top: 12px;
+        }
+    }
+</style>
+<div class="row file-layout">
+    <div class="col-md-3 file-sidebar">
+        <div class="storage-card sidebar">
             <h4><i class="fa fa-hdd-o"></i> 存储空间</h4>
             <div class="storage-bar">
-                <div class="progress progress-bar-striped active" style="width: {$user_info.storage_percent|default=0}%; background: {if $user_info.storage_percent > 90}#d9534f{elseif $user_info.storage_percent > 70}#f0ad4e{else}#5cb85c{/if};"></div>
+                <div class="progress progress-bar-striped active" style="width: {$user_info.storage_percent|default=0}%; background: {if $user_info.storage_percent > 90}#ef4444{elseif $user_info.storage_percent > 70}#f59e0b{else}#10b981{/if};"></div>
             </div>
-            <p class="text-muted" style="margin-top: 10px;">
+            <p class="text-muted">
                 已使用: {$user_info.storage_used_text|default='0 B'} / {$user_info.storage_quota_text|default='0 B'}
                 ({$user_info.storage_percent|default=0}%)
             </p>
@@ -24,22 +139,20 @@
         </div>
     </div>
 
-    <div class="col-md-9">
+    <div class="col-md-9 file-main">
         <div class="content-box">
-            <div class="row" style="margin-bottom: 15px;">
-                <div class="col-md-5">
-                    <h4 style="margin: 0; line-height: 34px;">
-                        {if $parent}
-                        <a href="{:url('index/file/index')}">全部文件</a> / {$parent.name}
-                        {else}
-                        <i class="fa fa-folder-open"></i> 全部文件
-                        {/if}
-                    </h4>
-                </div>
-                <div class="col-md-7 text-right">
-                    <form class="form-inline" method="get" action="{:url('index/file/index')}">
+            <div class="file-toolbar">
+                <h4 class="file-path">
+                    {if $parent}
+                    <a href="{:url('index/file/index')}">全部文件</a> / {$parent.name}
+                    {else}
+                    <i class="fa fa-folder-open"></i> 全部文件
+                    {/if}
+                </h4>
+                <div class="file-actions">
+                    <form class="file-search" method="get" action="{:url('index/file/index')}">
                         <input type="hidden" name="parent_id" value="{$parent_id}">
-                        <div class="form-group">
+                        <div class="form-group" style="margin:0;">
                             <input type="text" class="form-control input-sm" name="keyword" placeholder="搜索文件..." value="{$keyword}">
                         </div>
                         <button type="submit" class="btn btn-sm btn-primary"><i class="fa fa-search"></i></button>
@@ -53,7 +166,7 @@
                 </div>
             </div>
 
-            <div id="batchBar" style="margin-bottom: 10px; display: none;">
+            <div id="batchBar" class="batch-bar">
                 <span class="text-muted">已选 <b id="selCount">0</b> 项</span>
                 <button type="button" class="btn btn-xs btn-warning" onclick="batchMove()"><i class="fa fa-arrows"></i> 移动</button>
                 <button type="button" class="btn btn-xs btn-primary" onclick="batchZip()"><i class="fa fa-file-archive-o"></i> 打包下载</button>
@@ -105,8 +218,8 @@
                 </tbody>
             </table>
             {else}
-            <div class="text-center" style="padding: 50px;">
-                <i class="fa fa-folder-open" style="font-size: 64px; color: #ddd;"></i>
+            <div class="empty-state">
+                <i class="fa fa-folder-open"></i>
                 <p class="text-muted">暂无文件</p>
             </div>
             {/if}

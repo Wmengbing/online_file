@@ -1,16 +1,45 @@
 {extend name="common/layout" /}
 
 {block name="content"}
+<style>
+    .recycle-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 18px;
+    }
+    .recycle-header h3 {
+        margin: 0;
+        font-weight: 700;
+        color: #0f172a;
+    }
+    .recycle-header h3 .fa {
+        color: var(--primary);
+        margin-right: 8px;
+    }
+    .recycle-empty {
+        text-align: center;
+        padding: 56px 20px 30px;
+    }
+    .recycle-empty .fa {
+        font-size: 64px;
+        color: rgba(148, 163, 184, 0.7);
+        margin-bottom: 12px;
+    }
+    .recycle-do {
+        display: flex;
+        gap: 10px;
+        margin-top: 18px;
+        flex-wrap: wrap;
+    }
+</style>
 <div class="row">
     <div class="col-md-8 col-md-offset-2">
         <div class="content-box">
-            <div class="row" style="margin-bottom: 15px;">
-                <div class="col-md-6">
-                    <h3 style="margin: 0; line-height: 34px;"><i class="fa fa-trash"></i> 回收站</h3>
-                </div>
-                <div class="col-md-6 text-right">
-                    <button class="btn btn-sm btn-danger" onclick="clearRecycle()"><i class="fa fa-trash"></i> 清空回收站</button>
-                </div>
+            <div class="recycle-header">
+                <h3><i class="fa fa-trash"></i> 回收站</h3>
+                <button class="btn btn-sm btn-danger" onclick="clearRecycle()"><i class="fa fa-trash"></i> 清空回收站</button>
             </div>
             <hr>
             {if $recycle_list}
@@ -30,7 +59,7 @@
                     <tr>
                         <td><input type="checkbox" class="recycle-check" value="{$item.id}"></td>
                         <td>
-                            {if $item.file_type == 2}<i class="fa fa-folder" style="color: #f0ad4e;"></i>{else}<i class="fa fa-file" style="color: #5bc0de;"></i>{/if}
+                            {if $item.file_type == 2}<i class="fa fa-folder" style="color: #f59e0b;"></i>{else}<i class="fa fa-file" style="color: #3b82f6;"></i>{/if}
                             {$item.file_name}
                         </td>
                         <td>{$item.file_size_text|default='-'}</td>
@@ -44,13 +73,13 @@
                     {/foreach}
                 </tbody>
             </table>
-            <div style="margin-top: 15px;">
+            <div class="recycle-do">
                 <button class="btn btn-sm btn-success" onclick="restoreSelected()"><i class="fa fa-undo"></i> 还原选中</button>
                 <button class="btn btn-sm btn-danger" onclick="deleteSelected()"><i class="fa fa-trash"></i> 彻底删除选中</button>
             </div>
             {else}
-            <div class="text-center" style="padding: 50px;">
-                <i class="fa fa-trash" style="font-size: 64px; color: #ddd;"></i>
+            <div class="recycle-empty">
+                <i class="fa fa-trash"></i>
                 <p class="text-muted">回收站为空</p>
             </div>
             {/if}

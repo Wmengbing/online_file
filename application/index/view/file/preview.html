@@ -3,15 +3,122 @@
 {block name="title"}预览: {$file.name} - 文件共享系统{/block}
 
 {block name="content"}
-<div class="row">
+<style>
+    .preview-shell {
+        display: flex;
+        justify-content: center;
+    }
+    .preview-card {
+        width: 100%;
+        max-width: 1100px;
+        background: rgba(255,255,255,0.96);
+        border: 1px solid rgba(226,232,240,0.95);
+        border-radius: 22px;
+        box-shadow: 0 24px 50px rgba(15,23,42,0.08);
+        padding: 22px 22px 18px;
+    }
+    .preview-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+    .preview-title {
+        margin: 0;
+        font-weight: 700;
+        color: #0f172a;
+    }
+    .preview-title .fa {
+        color: var(--primary);
+        margin-right: 8px;
+    }
+    .preview-meta {
+        color: #64748b;
+        display: block;
+        margin-top: 4px;
+    }
+    .preview-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+    }
+    .preview-body {
+        margin-top: 16px;
+    }
+    .preview-content-box {
+        border: 1px solid #e2e8f0;
+        background: #f8fafc;
+        border-radius: 18px;
+        overflow: hidden;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.4);
+    }
+    .preview-image {
+        display: block;
+        max-width: 100%;
+        max-height: 70vh;
+        margin: 0 auto;
+        border-radius: 14px;
+    }
+    .preview-video, .preview-audio {
+        display: block;
+        max-width: 100%;
+        max-height: 70vh;
+        margin: 0 auto;
+    }
+    .preview-pdf {
+        height: 72vh;
+        border: 1px solid #dfeaf7;
+        border-radius: 16px;
+        overflow: hidden;
+        background: #f8fafc;
+    }
+    .preview-pdf iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+    }
+    .preview-text pre {
+        max-height: 65vh;
+        overflow: auto;
+        background: #f8fafc;
+        padding: 18px;
+        word-break: break-all;
+        white-space: pre-wrap;
+        border-radius: 14px;
+        border: 1px solid #e2e8f0;
+        margin: 0;
+        color: #1f2937;
+    }
+    .preview-empty {
+        text-align: center;
+        padding: 52px 20px;
+    }
+    .preview-empty .fa {
+        font-size: 64px;
+        color: rgba(148,163,184,0.8);
+        margin-bottom: 12px;
+    }
+    @media (max-width: 767px) {
+        .preview-header {
+            display: block;
+        }
+        .preview-actions {
+            justify-content: flex-start;
+            margin-top: 12px;
+        }
+    }
+</style>
+<div class="row preview-shell">
     <div class="col-md-10 col-md-offset-1">
-        <div class="content-box">
-            <div class="row" style="margin-bottom: 15px;">
-                <div class="col-md-6">
-                    <h4 style="margin: 0; line-height: 34px;"><i class="fa fa-eye"></i> {$file.name}</h4>
-                    <small class="text-muted">{$file.size_text} · {if $file.mime_type}{$file.mime_type}{else}-{/if}</small>
+        <div class="preview-card">
+            <div class="preview-header">
+                <div>
+                    <h4 class="preview-title"><i class="fa fa-eye"></i> {$file.name}</h4>
+                    <small class="preview-meta">{$file.size_text} · {if $file.mime_type}{$file.mime_type}{else}-{/if}</small>
                 </div>
-                <div class="col-md-6 text-right">
+                <div class="preview-actions">
                     <a href="{$download_url}" class="btn btn-sm btn-primary"><i class="fa fa-download"></i> 下载</a>
                     <a href="{:url('index/file/detail', ['file_id' => $file.id])}" class="btn btn-sm btn-default"><i class="fa fa-info-circle"></i> 详情</a>
                     <a href="{:url('index/file/index')}" class="btn btn-sm btn-default"><i class="fa fa-arrow-left"></i> 返回</a>
@@ -19,46 +126,48 @@
             </div>
             <hr>
 
-            {if $p_type == 'image'}
-            <div class="text-center">
-                <img src="{$raw_url}" alt="{$file.name}" style="max-width: 100%; max-height: 70vh;" onerror="this.outerHTML='<p class=\'text-danger text-center\'>图片加载失败</p>'">
-            </div>
-
-            {elseif $p_type == 'video'}
-            <div class="text-center">
-                <video src="{$raw_url}" controls style="max-width: 100%; max-height: 70vh;" preload="metadata">
-                    您的浏览器不支持视频播放,请<a href="{$download_url}">下载</a>后观看
-                </video>
-            </div>
-
-            {elseif $p_type == 'audio'}
-            <div class="text-center" style="padding: 40px;">
-                <i class="fa fa-music" style="font-size: 64px; color: #5bc0de;"></i>
-                <div style="margin-top: 20px;">
-                    <audio src="{$raw_url}" controls style="width: 100%;">您的浏览器不支持音频播放</audio>
+            <div class="preview-body">
+                {if $p_type == 'image'}
+                <div class="text-center preview-content-box">
+                    <img class="preview-image" src="{$raw_url}" alt="{$file.name}" onerror="this.outerHTML='<p class=\'text-danger text-center\'>图片加载失败</p>'">
                 </div>
-            </div>
 
-            {elseif $p_type == 'pdf'}
-            <div style="height: 72vh; border: 1px solid #ddd; border-radius: 4px; overflow: hidden;">
-                <iframe src="{$raw_url}" style="width: 100%; height: 100%; border: none;" title="PDF预览">
-                    您的浏览器不支持 PDF 内嵌预览,请<a href="{$download_url}">下载</a>查看
-                </iframe>
-            </div>
+                {elseif $p_type == 'video'}
+                <div class="text-center preview-content-box">
+                    <video class="preview-video" src="{$raw_url}" controls preload="metadata">
+                        您的浏览器不支持视频播放,请<a href="{$download_url}">下载</a>后观看
+                    </video>
+                </div>
 
-            {elseif $p_type == 'text'}
-            <div class="form-group">
-                <pre style="max-height: 65vh; overflow: auto; background: #f8f9fa; padding: 15px; word-break: break-all; white-space: pre-wrap;">{$text_content|htmlspecialchars|default='(空文件)'}</pre>
-                {if $text_truncated}<p class="text-warning"><i class="fa fa-exclamation-triangle"></i> 文件较大,仅预览前 2MB 内容,请下载查看完整内容</p>{/if}
-            </div>
+                {elseif $p_type == 'audio'}
+                <div class="text-center preview-content-box" style="padding: 40px;">
+                    <i class="fa fa-music" style="font-size: 64px; color: #3b82f6;"></i>
+                    <div style="margin-top: 20px;">
+                        <audio class="preview-audio" src="{$raw_url}" controls>您的浏览器不支持音频播放</audio>
+                    </div>
+                </div>
 
-            {else}
-            <div class="text-center" style="padding: 60px;">
-                <i class="fa fa-file-o" style="font-size: 64px; color: #ccc;"></i>
-                <p class="text-muted" style="margin-top: 15px;">该文件类型暂不支持在线预览</p>
-                <a href="{$download_url}" class="btn btn-primary"><i class="fa fa-download"></i> 下载文件</a>
+                {elseif $p_type == 'pdf'}
+                <div class="preview-pdf">
+                    <iframe src="{$raw_url}" title="PDF预览">
+                        您的浏览器不支持 PDF 内嵌预览,请<a href="{$download_url}">下载</a>查看
+                    </iframe>
+                </div>
+
+                {elseif $p_type == 'text'}
+                <div class="preview-text">
+                    <pre>{$text_content|htmlspecialchars|default='(空文件)'}</pre>
+                    {if $text_truncated}<p class="text-warning"><i class="fa fa-exclamation-triangle"></i> 文件较大,仅预览前 2MB 内容,请下载查看完整内容</p>{/if}
+                </div>
+
+                {else}
+                <div class="preview-empty">
+                    <i class="fa fa-file-o"></i>
+                    <p class="text-muted" style="margin-top: 15px;">该文件类型暂不支持在线预览</p>
+                    <a href="{$download_url}" class="btn btn-primary"><i class="fa fa-download"></i> 下载文件</a>
+                </div>
+                {/if}
             </div>
-            {/if}
         </div>
     </div>
 </div>
