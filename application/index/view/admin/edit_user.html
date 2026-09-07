@@ -6,11 +6,15 @@
         <div class="content-box">
             <h3><i class="fa fa-edit"></i> 编辑用户</h3>
             <hr>
-            <form method="post" action="{:url('index/admin/editUser')}">
+            <form method="post" id="editUserForm">
                 <input type="hidden" name="user_id" value="{$user.id}">
                 <div class="form-group">
                     <label>用户名</label>
                     <input type="text" class="form-control" value="{$user.username}" disabled>
+                </div>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input type="password" class="form-control" name="password" placeholder="留空则不修改密码" minlength="6">
                 </div>
                 <div class="form-group">
                     <label>邮箱</label>
@@ -32,14 +36,26 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>角色</label>
-                    {foreach $roles as $role}
-                    <div class="checkbox">
-                        <label>
-                            <input type="checkbox" name="role_ids[]" value="{$role.id}" {if in_array($role.id, $user_role_ids)}checked{/if}> {$role.name} ({$role.code})
-                        </label>
+                    <label>角色分配</label>
+                    <div class="role-list">
+                        {foreach $roles as $role}
+                        <div class="role-item">
+                            <div class="role-check">
+                                <label>
+                                    <input type="checkbox" name="role_ids[]" value="{$role.id}" class="role-checkbox" {if in_array($role.id, $user_role_ids)}checked{/if}>
+                                    <strong>{$role.name}</strong> <span class="text-muted">({$role.code})</span>
+                                </label>
+                            </div>
+                            <div class="manager-option" data-role-id="{$role.id}" {if !in_array($role.id, $user_role_ids)}style="display:none;"{/if}>
+                                <label class="manager-label">
+                                    <input type="checkbox" name="manager_roles[]" value="{$role.id}" {if isset($manager_role_ids) && in_array($role.id, $manager_role_ids)}checked{/if}>
+                                    <i class="fa fa-star"></i> 设为该角色管理者（可管理该组文件）
+                                </label>
+                            </div>
+                        </div>
+                        {/foreach}
                     </div>
-                    {/foreach}
+                    <small class="text-muted">勾选管理者后，该用户可以上传、删除、重命名对应角色组的文件</small>
                 </div>
                 <button type="submit" class="btn btn-primary"><i class="fa fa-save"></i> 保存</button>
                 <a href="{:url('index/admin/users')}" class="btn btn-default">返回</a>
@@ -47,4 +63,74 @@
         </div>
     </div>
 </div>
+
+<style>
+.role-list {
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    padding: 10px 15px;
+    background: #f9fafb;
+}
+.role-item {
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+.role-item:last-child {
+    border-bottom: none;
+}
+.manager-option {
+    margin-left: 25px;
+    margin-top: 5px;
+    padding: 6px 10px;
+    background: #fffbeb;
+    border-left: 3px solid #f59e0b;
+    border-radius: 0 4px 4px 0;
+}
+.manager-label {
+    margin: 0;
+    font-size: 13px;
+    color: #92400e;
+    cursor: pointer;
+}
+.manager-label .fa {
+    color: #f59e0b;
+}
+</style>
+
+<script>
+$(function() {
+    $('.role-checkbox').on('change', function() {
+        var roleId = $(this).val();
+        var managerOption = $('.manager-option[data-role-id="' + roleId + '"]');
+        if ($(this).is(':checked')) {
+            managerOption.slideDown(200);
+        } else {
+            managerOption.slideUp(200);
+            managerOption.find('input[type="checkbox"]').prop('checked', false);
+        }
+    });
+
+    $('#editUserForm').on('submit', function(e) {
+        e.preventDefault();
+        $.ajax({
+            url: '{:url("index/admin/editUser")}',
+            type: 'POST',
+            data: $(this).serialize(),
+            dataType: 'json',
+            success: function(res) {
+                if (res.code == 200) {
+                    layer.msg(res.msg, {icon: 1}, function() {
+                        location.href = res.url || '{:url("index/admin/users")}';
+                    });
+                } else {
+                    layer.msg(res.msg || '操作失败', {icon: 2});
+                }
+            },
+            error: function() {
+                layer.msg('请求失败', {icon: 2});
+            }
+        });
+    });
+});
+</script>
 {/block}

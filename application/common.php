@@ -299,8 +299,9 @@ function is_previewable_extension($extension)
     $image  = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
     $video  = ['mp4', 'webm', 'ogv', 'mov', 'm4v'];
     $audio  = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'opus'];
+    $office = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
 
-    return in_array($ext, $image) || in_array($ext, $video) || in_array($ext, $audio) || $ext == 'pdf' || in_array($ext, $text);
+    return in_array($ext, $image) || in_array($ext, $video) || in_array($ext, $audio) || $ext == 'pdf' || in_array($ext, $text) || in_array($ext, $office);
 }
 
 /**
@@ -315,6 +316,9 @@ function preview_type_of($extension)
     if (in_array($ext, ['mp4', 'webm', 'ogv', 'mov', 'm4v']))           return 'video';
     if (in_array($ext, ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'opus'])) return 'audio';
     if ($ext == 'pdf') return 'pdf';
+    if (in_array($ext, ['doc', 'docx'])) return 'word';
+    if (in_array($ext, ['xls', 'xlsx'])) return 'excel';
+    if (in_array($ext, ['ppt', 'pptx'])) return 'ppt';
     if (in_array($ext, $text)) return 'text';
     return 'unsupported';
 }
@@ -341,10 +345,9 @@ function send_file_stream($full_path, $download_name = '', $inline = false, $mim
 function collect_file_tree_rows($user_id, $root_id)
 {
     $rows = [];
-    $walk = function ($id, $rel) use ($user_id, &$rows, &$walk) {
+    $walk = function ($id, $rel) use (&$rows, &$walk) {
         $node = \think\Db::name('files')
             ->where('id', $id)
-            ->where('user_id', $user_id)
             ->where('status', 1)
             ->find();
         if (!$node) {
@@ -355,7 +358,6 @@ function collect_file_tree_rows($user_id, $root_id)
             return;
         }
         $children = \think\Db::name('files')
-            ->where('user_id', $user_id)
             ->where('parent_id', $id)
             ->where('status', 1)
             ->order('type', 'asc')

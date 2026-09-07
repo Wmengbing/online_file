@@ -6,7 +6,7 @@
         <div class="content-box">
             <h3><i class="fa fa-plus"></i> 创建用户</h3>
             <hr>
-            <form method="post" action="{:url('index/admin/createUser')}">
+            <form method="post" id="createUserForm">
                 <div class="form-group">
                     <label>用户名 <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" name="username" required minlength="3" maxlength="50">
@@ -29,14 +29,26 @@
                     <small class="text-muted">默认10GB (10737418240字节)</small>
                 </div>
                 <div class="form-group">
-                    <label>角色</label>
-                    {foreach $roles as $role}
-                    <div class="checkbox">
-                        <label>
-                            <input type="checkbox" name="role_ids[]" value="{$role.id}"> {$role.name} ({$role.code})
-                        </label>
+                    <label>角色分配</label>
+                    <div class="role-list">
+                        {foreach $roles as $role}
+                        <div class="role-item">
+                            <div class="role-check">
+                                <label>
+                                    <input type="checkbox" name="role_ids[]" value="{$role.id}" class="role-checkbox">
+                                    <strong>{$role.name}</strong> <span class="text-muted">({$role.code})</span>
+                                </label>
+                            </div>
+                            <div class="manager-option" data-role-id="{$role.id}" style="display:none;">
+                                <label class="manager-label">
+                                    <input type="checkbox" name="manager_roles[]" value="{$role.id}">
+                                    <i class="fa fa-star"></i> 设为该角色管理者（可管理该组文件）
+                                </label>
+                            </div>
+                        </div>
+                        {/foreach}
                     </div>
-                    {/foreach}
+                    <small class="text-muted">勾选管理者后，该用户可以上传、删除、重命名对应角色组的文件</small>
                 </div>
                 <button type="submit" class="btn btn-primary"><i class="fa fa-save"></i> 创建</button>
                 <a href="{:url('index/admin/users')}" class="btn btn-default">返回</a>
@@ -44,4 +56,74 @@
         </div>
     </div>
 </div>
+
+<style>
+.role-list {
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    padding: 10px 15px;
+    background: #f9fafb;
+}
+.role-item {
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+.role-item:last-child {
+    border-bottom: none;
+}
+.manager-option {
+    margin-left: 25px;
+    margin-top: 5px;
+    padding: 6px 10px;
+    background: #fffbeb;
+    border-left: 3px solid #f59e0b;
+    border-radius: 0 4px 4px 0;
+}
+.manager-label {
+    margin: 0;
+    font-size: 13px;
+    color: #92400e;
+    cursor: pointer;
+}
+.manager-label .fa {
+    color: #f59e0b;
+}
+</style>
+
+<script>
+$(function() {
+    $('.role-checkbox').on('change', function() {
+        var roleId = $(this).val();
+        var managerOption = $('.manager-option[data-role-id="' + roleId + '"]');
+        if ($(this).is(':checked')) {
+            managerOption.slideDown(200);
+        } else {
+            managerOption.slideUp(200);
+            managerOption.find('input[type="checkbox"]').prop('checked', false);
+        }
+    });
+
+    $('#createUserForm').on('submit', function(e) {
+        e.preventDefault();
+        $.ajax({
+            url: '{:url("index/admin/createUser")}',
+            type: 'POST',
+            data: $(this).serialize(),
+            dataType: 'json',
+            success: function(res) {
+                if (res.code == 200) {
+                    layer.msg(res.msg, {icon: 1}, function() {
+                        location.href = res.url || '{:url("index/admin/users")}';
+                    });
+                } else {
+                    layer.msg(res.msg || '操作失败', {icon: 2});
+                }
+            },
+            error: function() {
+                layer.msg('请求失败', {icon: 2});
+            }
+        });
+    });
+});
+</script>
 {/block}

@@ -64,6 +64,7 @@
                         <input type="text" class="form-control input-sm" name="keyword" placeholder="搜索用户..." value="{$keyword}">
                         <button type="submit" class="btn btn-sm btn-primary"><i class="fa fa-search"></i></button>
                     </form>
+                    <a href="{:url('index/admin/roles')}" class="btn btn-sm btn-warning"><i class="fa fa-shield"></i> 角色管理</a>
                     <a href="{:url('index/admin/createUser')}" class="btn btn-sm btn-success"><i class="fa fa-plus"></i> 创建用户</a>
                 </div>
             </div>
@@ -87,7 +88,12 @@
                         <td>{$user.id}</td>
                         <td>{$user.username}</td>
                         <td>{$user.email|default='-'}</td>
-                        <td>{$user.roles_text|default='无'}</td>
+                        <td>
+                            {$user.roles_text|default='无'}
+                            {if !empty($user.manager_roles)}
+                            <br><span class="label label-warning"><i class="fa fa-star"></i> 管理者: {$user.manager_roles_text}</span>
+                            {/if}
+                        </td>
                         <td class="user-storage">
                             <div class="storage-bar">
                                 <div class="progress" style="width: {$user.storage_percent}%; background: {if $user.storage_percent > 90}#ef4444{elseif $user.storage_percent > 70}#f59e0b{else}#10b981{/if};"></div>

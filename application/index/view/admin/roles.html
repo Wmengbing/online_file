@@ -9,6 +9,7 @@
                     <h3 style="margin: 0; line-height: 34px;"><i class="fa fa-shield"></i> 角色管理</h3>
                 </div>
                 <div class="col-md-6 text-right">
+                    <a href="{:url('index/admin/users')}" class="btn btn-sm btn-info"><i class="fa fa-users"></i> 用户管理</a>
                     <a href="{:url('index/admin/createRole')}" class="btn btn-sm btn-success"><i class="fa fa-plus"></i> 创建角色</a>
                 </div>
             </div>
@@ -19,8 +20,10 @@
                         <th>ID</th>
                         <th>角色名称</th>
                         <th>角色代码</th>
+                        <th>专属文件夹</th>
                         <th>描述</th>
                         <th>权限</th>
+                        <th>用户数</th>
                         <th>状态</th>
                         <th>操作</th>
                     </tr>
@@ -31,8 +34,16 @@
                         <td>{$role.id}</td>
                         <td>{$role.name}</td>
                         <td><code>{$role.code}</code></td>
+                        <td>
+                            {if $role.folder_id > 0}
+                            <span class="label label-primary"><i class="fa fa-folder"></i> {$role.name}</span>
+                            {else}
+                            <span class="text-muted">未创建</span>
+                            {/if}
+                        </td>
                         <td>{$role.description|default='-'}</td>
                         <td>{$role.permissions_text|default='无'}</td>
+                        <td>{$role.user_count|default=0}</td>
                         <td>
                             {if $role.status == 1}<span class="label label-success">正常</span>
                             {else}<span class="label label-danger">禁用</span>{/if}

@@ -24,9 +24,26 @@ class File extends Base
         $keyword = input('keyword', '');
         
         $query = Db::name('files')
-            ->where('user_id', $this->user_id)
             ->where('parent_id', $parent_id)
             ->where('status', 1);
+        $this->applyAccessFilter($query);
+        
+        // 非管理员：只显示角色对应的文件夹
+        if (!$this->checkAdmin(false)) {
+            $role_folder_ids = $this->getRoleFolderIds();
+            if (!empty($role_folder_ids)) {
+                // 如果查询的是根目录（parent_id=0），只显示角色文件夹
+                if ($parent_id == 0) {
+                    $query->where('id', 'in', $role_folder_ids);
+                } else {
+                    // 如果在子目录中，检查是否在角色文件夹树下
+                    $in_role_tree = $this->isInRoleFolderTree($parent_id);
+                    if (!$in_role_tree) {
+                        $query->where('1=0');
+                    }
+                }
+            }
+        }
         
         if ($keyword) {
             $query->where('name', 'like', '%' . $keyword . '%');
@@ -38,14 +55,18 @@ class File extends Base
             if ($file['type'] == 1) {
                 $file['size_text'] = format_file_size($file['size']);
             }
+            $file['can_manage'] = $this->canManageFile($file);
         }
         
         $parent = null;
         if ($parent_id > 0) {
             $parent = Db::name('files')
                 ->where('id', $parent_id)
-                ->where('user_id', $this->user_id)
+                ->where('status', 1)
                 ->find();
+            if ($parent && !$this->canAccessFile($parent)) {
+                $parent = null;
+            }
         }
         
         $this->assign('files', $files);
@@ -53,6 +74,7 @@ class File extends Base
         $this->assign('parent', $parent);
         $this->assign('keyword', $keyword);
         $this->assign('max_upload_text', format_file_size((int)app_cfg('max_file_size', 0)));
+        $this->assign('default_parent_id', $this->getDefaultUploadParentId());
 
         return $this->fetch();
     }
@@ -77,13 +99,13 @@ class File extends Base
                 return $this->error('目标目录不存在');
             }
 
-            $exists = Db::name('files')
-                ->where('user_id', $this->user_id)
+            $existsQuery = Db::name('files')
                 ->where('parent_id', $parent_id)
                 ->where('name', $name)
                 ->where('type', 2)
-                ->where('status', 1)
-                ->find();
+                ->where('status', 1);
+            $this->applyAccessFilter($existsQuery);
+            $exists = $existsQuery->find();
 
             if ($exists) {
                 return $this->error('目录已存在');
@@ -100,7 +122,7 @@ class File extends Base
             
             log_operation('file', 'create_folder', '创建目录:' . $name);
             
-            return $this->success('创建成功');
+            return $this->success('创建成功', 'index/file/index', ['parent_id' => $parent_id]);
         }
         
         $parent_id = input('parent_id', 0);
@@ -138,16 +160,141 @@ class File extends Base
     }
 
     /**
-     * 校验目录归属:父目录必须存在且属于当前用户
+     * 校验目录归属:父目录必须存在并且当前用户可访问
      */
     private function validateFolderOwner($folder_id)
     {
-        return (bool)Db::name('files')
+        $folder = Db::name('files')
             ->where('id', $folder_id)
-            ->where('user_id', $this->user_id)
             ->where('type', 2)
             ->where('status', 1)
-            ->value('id');
+            ->find();
+
+        return $folder && $this->canAccessFile($folder);
+    }
+
+    /**
+     * 获取当前用户所属角色对应的文件夹ID列表
+     * @return array
+     */
+    private function getRoleFolderIds()
+    {
+        $role_ids = $this->getCurrentRoleIds();
+        if (empty($role_ids)) {
+            return [];
+        }
+
+        $folder_ids = Db::name('roles')
+            ->where('id', 'in', $role_ids)
+            ->where('status', 1)
+            ->where('folder_id', '>', 0)
+            ->column('folder_id');
+
+        return array_values(array_unique(array_map('intval', $folder_ids)));
+    }
+
+    /**
+     * 检查指定文件夹ID是否在角色文件夹树下
+     * @param int $folder_id
+     * @return bool
+     */
+    private function isInRoleFolderTree($folder_id)
+    {
+        $role_folder_ids = $this->getRoleFolderIds();
+        if (empty($role_folder_ids)) {
+            return false;
+        }
+
+        // 如果本身就是角色文件夹
+        if (in_array((int)$folder_id, $role_folder_ids)) {
+            return true;
+        }
+
+        // 向上查找父级，看是否在角色文件夹树下
+        $cursor = (int)$folder_id;
+        $guard = 0;
+        while ($cursor > 0 && $guard++ < 100) {
+            $parent_id = (int)Db::name('files')
+                ->where('id', $cursor)
+                ->value('parent_id');
+            
+            if ($parent_id == 0) {
+                return false;
+            }
+            
+            if (in_array($parent_id, $role_folder_ids)) {
+                return true;
+            }
+            
+            $cursor = $parent_id;
+        }
+
+        return false;
+    }
+
+    /**
+     * 获取当前用户默认上传的目标文件夹ID
+     * 非管理员：返回角色文件夹ID
+     * 管理员：返回0（根目录）
+     * @return int
+     */
+    private function getDefaultUploadParentId()
+    {
+        if ($this->checkAdmin(false)) {
+            return 0;
+        }
+
+        $role_folder_ids = $this->getRoleFolderIds();
+        if (!empty($role_folder_ids)) {
+            return $role_folder_ids[0];
+        }
+
+        return 0;
+    }
+
+    private function canAccessFile($file)
+    {
+        if (empty($file)) {
+            return false;
+        }
+
+        if ($this->checkAdmin(false)) {
+            return true;
+        }
+
+        if ((int)$file['user_id'] === (int)$this->user_id) {
+            return true;
+        }
+
+        $current_roles = $this->getCurrentRoleIds();
+        if (empty($current_roles)) {
+            return false;
+        }
+
+        $owner_roles = Db::name('user_roles')
+            ->where('user_id', (int)$file['user_id'])
+            ->column('role_id');
+
+        if (empty($owner_roles)) {
+            return false;
+        }
+
+        $shared_roles = array_intersect(array_map('intval', $current_roles), array_map('intval', $owner_roles));
+        return !empty($shared_roles);
+    }
+
+    private function applyAccessFilter($query)
+    {
+        if ($this->checkAdmin(false)) {
+            return $query;
+        }
+
+        $user_ids = $this->getAccessibleUserIds();
+        if (empty($user_ids)) {
+            return $query->where('1=0');
+        }
+
+        return $query->where('user_id', 'in', $user_ids);
     }
 
     private function handleUpload($file, $parent_id = 0)
@@ -240,12 +387,11 @@ class File extends Base
         
         $file = Db::name('files')
             ->where('id', $file_id)
-            ->where('user_id', $this->user_id)
             ->where('type', 1)
             ->where('status', 1)
             ->find();
-            
-        if (!$file) {
+             
+        if (!$file || !$this->canAccessFile($file)) {
             $this->error('文件不存在');
         }
         
@@ -275,12 +421,11 @@ class File extends Base
 
         $file = Db::name('files')
             ->where('id', $file_id)
-            ->where('user_id', $this->user_id)
             ->where('type', 1)
             ->where('status', 1)
             ->find();
 
-        if (!$file) {
+        if (!$file || !$this->canAccessFile($file)) {
             $this->error('文件不存在');
         }
 
@@ -332,12 +477,11 @@ class File extends Base
 
         $file = Db::name('files')
             ->where('id', $file_id)
-            ->where('user_id', $this->user_id)
             ->where('type', 1)
             ->where('status', 1)
             ->find();
 
-        if (!$file) {
+        if (!$file || !$this->canAccessFile($file)) {
             $this->error('文件不存在');
         }
 
@@ -369,10 +513,9 @@ class File extends Base
         foreach ($file_ids as $fid) {
             $root = Db::name('files')
                 ->where('id', $fid)
-                ->where('user_id', $this->user_id)
                 ->where('status', 1)
                 ->find();
-            if (!$root) {
+            if (!$root || !$this->canAccessFile($root)) {
                 continue;
             }
             $tree = collect_file_tree_rows($this->user_id, $fid);
@@ -439,21 +582,24 @@ class File extends Base
             
             $file = Db::name('files')
                 ->where('id', $file_id)
-                ->where('user_id', $this->user_id)
                 ->where('status', 1)
                 ->find();
                 
-            if (!$file) {
+            if (!$file || !$this->canAccessFile($file)) {
                 return $this->error('文件不存在');
+            }
+
+            if (!$this->canManageFile($file)) {
+                return $this->error('无权限重命名此文件');
             }
             
             $exists = Db::name('files')
-                ->where('user_id', $this->user_id)
                 ->where('parent_id', $file['parent_id'])
                 ->where('name', $new_name)
-                ->where('status', 1)
-                ->find();
-                
+                ->where('status', 1);
+            $this->applyAccessFilter($exists);
+            $exists = $exists->find();
+            
             if ($exists) {
                 return $this->error('同名文件已存在');
             }
@@ -470,8 +616,10 @@ class File extends Base
         $file_id = input('file_id', 0);
         $file = Db::name('files')
             ->where('id', $file_id)
-            ->where('user_id', $this->user_id)
             ->find();
+        if ($file && !$this->canAccessFile($file)) {
+            $file = null;
+        }
         
         $this->assign('file', $file);
         return $this->fetch();
@@ -495,13 +643,18 @@ class File extends Base
 
             $file_ids = array_unique(array_map('intval', $file_ids));
 
-            // 移动目录时禁止移入自身或其子孙目录
-            $moving_folders = Db::name('files')
-                ->where('user_id', $this->user_id)
+            $moving_files = Db::name('files')
                 ->where('id', 'in', $file_ids)
-                ->where('type', 2)
                 ->where('status', 1)
-                ->column('id');
+                ->select();
+            $moving_files = array_values(array_filter($moving_files, function ($item) {
+                return $this->canAccessFile($item) && $this->canManageFile($item);
+            }));
+            $moving_folders = array_values(array_map(function ($item) {
+                return (int)$item['id'];
+            }, array_filter($moving_files, function ($item) {
+                return (int)$item['type'] === 2;
+            })));
 
             if ($target_parent_id > 0 && in_array($target_parent_id, $moving_folders)) {
                 return $this->error('不能将目录移动到自身内部');
@@ -513,13 +666,16 @@ class File extends Base
                 }
             }
 
+            $movable_ids = array_map(function ($item) {
+                return (int)$item['id'];
+            }, $moving_files);
+
             Db::name('files')
-                ->where('user_id', $this->user_id)
-                ->where('id', 'in', $file_ids)
+                ->where('id', 'in', $movable_ids)
                 ->where('status', 1)
                 ->update(['parent_id' => $target_parent_id]);
 
-            log_operation('file', 'move', '移动文件:' . count($file_ids) . '个');
+            log_operation('file', 'move', '移动文件:' . count($movable_ids) . '个');
 
             return $this->success('移动成功');
         }
@@ -528,10 +684,10 @@ class File extends Base
         $this->assign('file_ids', $file_ids);
         
         $folders = Db::name('files')
-            ->where('user_id', $this->user_id)
             ->where('type', 2)
-            ->where('status', 1)
-            ->select();
+            ->where('status', 1);
+        $this->applyAccessFilter($folders);
+        $folders = $folders->select();
         
         $this->assign('folders', $folders);
         return $this->fetch();
@@ -549,22 +705,27 @@ class File extends Base
             }
             
             $files = Db::name('files')
-                ->where('user_id', $this->user_id)
                 ->where('id', 'in', $file_ids)
                 ->where('status', 1)
                 ->select();
+            $files = array_values(array_filter($files, function ($file) {
+                return $this->canAccessFile($file) && $this->canManageFile($file);
+            }));
+            
+            if (empty($files)) {
+                return $this->error('没有可删除的文件或无权限删除');
+            }
             
             $recycle_data = [];
             $ids_to_hide = [];
 
             foreach ($files as $file) {
                 // 递归收集整个目录树(含目录自身),目录、子孙目录、子孙文件全部一并移入回收站
-                $this->collectTree($file, $this->user_id, $recycle_data, $ids_to_hide);
+                $this->collectTree($file, $file['user_id'], $recycle_data, $ids_to_hide);
             }
 
             if (!empty($ids_to_hide)) {
                 Db::name('files')
-                    ->where('user_id', $this->user_id)
                     ->where('id', 'in', array_unique($ids_to_hide))
                     ->where('status', 1)
                     ->update(['status' => 0]);
@@ -574,7 +735,7 @@ class File extends Base
                 Db::name('file_recycle')->insertAll($recycle_data);
             }
 
-            log_operation('file', 'delete', '删除文件:' . count($file_ids) . '个');
+            log_operation('file', 'delete', '删除文件:' . count($files) . '个');
 
             return $this->success('已移入回收站');
         }
@@ -593,7 +754,6 @@ class File extends Base
             }
             $cursor = (int)Db::name('files')
                 ->where('id', $cursor)
-                ->where('user_id', $this->user_id)
                 ->value('parent_id');
         }
         return false;
@@ -625,7 +785,6 @@ class File extends Base
         }
 
         $children = Db::name('files')
-            ->where('user_id', $user_id)
             ->where('parent_id', $node['id'])
             ->where('status', 1)
             ->select();

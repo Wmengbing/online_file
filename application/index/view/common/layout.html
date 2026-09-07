@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{block name="title"}文件共享系统{/block}</title>
+    {block name="head"}{/block}
     <link href="/static/vendor/bootstrap/3.4.1/css/bootstrap.min.css" rel="stylesheet">
     <link href="/static/vendor/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
     <style>
@@ -34,7 +35,9 @@
         a { color: var(--primary); transition: color 0.2s ease; }
         a:hover, a:focus { color: #1d4ed8; text-decoration: none; }
         ::selection { background: rgba(37,99,235,0.16); }
-        .container { max-width: 1200px; }
+        .container { max-width: 1600px !important; width: 100% !important; padding-left: 15px !important; padding-right: 15px !important; }
+        @media (min-width: 1200px) { .container { max-width: 1600px !important; } }
+        @media (min-width: 1400px) { .container { max-width: 1600px !important; } }
         .navbar {
             margin-bottom: 24px;
             background: rgba(255,255,255,0.9);
@@ -294,7 +297,18 @@
                     <li><a href="{:url('index/share/sharedWithMe')}"><i class="fa fa-users"></i> 共享给我</a></li>
                     <li><a href="{:url('index/recycle/index')}"><i class="fa fa-trash"></i> 回收站</a></li>
                     {if isset($is_admin) && $is_admin}
-                    <li><a href="{:url('index/admin/users')}"><i class="fa fa-tasks"></i> 管理后台</a></li>
+                    <li class="dropdown">
+                        <a href="#" class="dropdown-toggle" data-toggle="dropdown">
+                            <i class="fa fa-tasks"></i> 管理后台 <span class="caret"></span>
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a href="{:url('index/admin/users')}"><i class="fa fa-users"></i> 用户管理</a></li>
+                            <li><a href="{:url('index/admin/roles')}"><i class="fa fa-shield"></i> 角色管理</a></li>
+                            <li><a href="{:url('index/admin/logs')}"><i class="fa fa-file-text"></i> 操作日志</a></li>
+                            <li><a href="{:url('index/admin/storage')}"><i class="fa fa-hdd-o"></i> 存储管理</a></li>
+                            <li><a href="{:url('index/admin/tasks')}"><i class="fa fa-tasks"></i> 任务管理</a></li>
+                        </ul>
+                    </li>
                     {/if}
                 </ul>
                 <ul class="nav navbar-nav navbar-right">

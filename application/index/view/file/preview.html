@@ -2,6 +2,15 @@
 
 {block name="title"}预览: {$file.name} - 文件共享系统{/block}
 
+{block name="head"}
+{if $p_type == 'excel'}
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+{/if}
+{if $p_type == 'word'}
+<script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+{/if}
+{/block}
+
 {block name="content"}
 <style>
     .preview-shell {
@@ -100,6 +109,64 @@
         color: rgba(148,163,184,0.8);
         margin-bottom: 12px;
     }
+    .preview-office {
+        width: 100%;
+    }
+    .office-preview-container {
+        position: relative;
+        width: 100%;
+        height: 72vh;
+        background: #f8fafc;
+        border-radius: 16px;
+        overflow: hidden;
+        border: 1px solid #dfeaf7;
+    }
+    .office-iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+        display: none;
+    }
+    .office-loading, .office-error {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #f8fafc;
+    }
+    .office-content {
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background: #fff;
+    }
+    .office-content table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 10px 0;
+    }
+    .office-content table th,
+    .office-content table td {
+        border: 1px solid #e2e8f0;
+        padding: 8px 12px;
+        text-align: left;
+    }
+    .office-content table th {
+        background: #f1f5f9;
+        font-weight: 600;
+        color: #1f2937;
+    }
+    .office-content table tr:nth-child(even) {
+        background: #f8fafc;
+    }
+    .office-content table tr:hover {
+        background: #e0f2fe;
+    }
     @media (max-width: 767px) {
         .preview-header {
             display: block;
@@ -159,6 +226,117 @@
                     <pre>{$text_content|htmlspecialchars|default='(空文件)'}</pre>
                     {if $text_truncated}<p class="text-warning"><i class="fa fa-exclamation-triangle"></i> 文件较大,仅预览前 2MB 内容,请下载查看完整内容</p>{/if}
                 </div>
+
+                {elseif $p_type == 'word' || $p_type == 'excel' || $p_type == 'ppt'}
+                <div class="preview-office">
+                    <div class="office-preview-container">
+                        <div id="officeLoading" class="office-loading">
+                            <i class="fa fa-spinner fa-spin" style="font-size: 48px; color: #3b82f6;"></i>
+                            <p style="margin-top: 16px; color: #64748b;">正在加载文档预览...</p>
+                        </div>
+                        <div id="officeContent" class="office-content" style="display: none;"></div>
+                        <div id="officeError" class="office-error" style="display: none;">
+                            <i class="fa fa-exclamation-triangle" style="font-size: 48px; color: #f59e0b;"></i>
+                            <p style="margin-top: 16px; color: #64748b;">文档预览加载失败</p>
+                            <a href="{$download_url}" class="btn btn-primary" style="margin-top: 12px;"><i class="fa fa-download"></i> 下载文件</a>
+                        </div>
+                    </div>
+                </div>
+                <script>
+                (function() {
+                    var rawUrl = '{$raw_url}';
+                    var fileType = '{$p_type}';
+                    var officeLoading = document.getElementById('officeLoading');
+                    var officeContent = document.getElementById('officeContent');
+                    var officeError = document.getElementById('officeError');
+                    
+                    function showError() {
+                        officeLoading.style.display = 'none';
+                        officeError.style.display = 'flex';
+                    }
+                    
+                    function showContent(html) {
+                        officeLoading.style.display = 'none';
+                        officeContent.innerHTML = html;
+                        officeContent.style.display = 'block';
+                    }
+                    
+                    // 获取文件并解析（携带认证信息）
+                    fetch(rawUrl, { credentials: 'include' })
+                        .then(function(response) {
+                            if (!response.ok) throw new Error('Network error');
+                            return response.arrayBuffer();
+                        })
+                        .then(function(arrayBuffer) {
+                            if (fileType === 'word') {
+                                // Word文档使用mammoth.js解析
+                                if (typeof mammoth === 'undefined') {
+                                    showError();
+                                    return;
+                                }
+                                mammoth.convertToHtml({arrayBuffer: arrayBuffer})
+                                    .then(function(result) {
+                                        showContent('<div style="padding: 20px;">' + result.value + '</div>');
+                                    })
+                                    .catch(function(err) {
+                                        console.error('Word parse error:', err);
+                                        showError();
+                                    });
+                            } else if (fileType === 'excel') {
+                                // Excel文档使用SheetJS解析
+                                if (typeof XLSX === 'undefined') {
+                                    showError();
+                                    return;
+                                }
+                                try {
+                                    var workbook = XLSX.read(arrayBuffer, {type: 'array'});
+                                    var html = '<div style="padding: 20px;">';
+                                    workbook.SheetNames.forEach(function(sheetName, index) {
+                                        var worksheet = workbook.Sheets[sheetName];
+                                        if (!worksheet) return;
+                                        
+                                        // 转换为JSON数组再构建表格
+                                        var jsonData = XLSX.utils.sheet_to_json(worksheet, {header: 1, defval: ''});
+                                        if (jsonData.length === 0) {
+                                            html += '<h4 style="margin: 20px 0 10px; color: #1f2937;"><i class="fa fa-table"></i> ' + sheetName + '</h4>';
+                                            html += '<p class="text-muted">此工作表为空</p>';
+                                            return;
+                                        }
+                                        
+                                        html += '<h4 style="margin: 20px 0 10px; color: #1f2937;"><i class="fa fa-table"></i> ' + sheetName + '</h4>';
+                                        html += '<div style="overflow-x: auto;"><table class="table table-bordered">';
+                                        
+                                        jsonData.forEach(function(row, rowIndex) {
+                                            html += '<tr>';
+                                            row.forEach(function(cell) {
+                                                if (rowIndex === 0) {
+                                                    html += '<th>' + (cell !== null && cell !== undefined ? cell : '') + '</th>';
+                                                } else {
+                                                    html += '<td>' + (cell !== null && cell !== undefined ? cell : '') + '</td>';
+                                                }
+                                            });
+                                            html += '</tr>';
+                                        });
+                                        
+                                        html += '</table></div>';
+                                    });
+                                    html += '</div>';
+                                    showContent(html);
+                                } catch (e) {
+                                    console.error('Excel parse error:', e);
+                                    showError();
+                                }
+                            } else {
+                                // PPT暂不支持客户端解析
+                                showError();
+                            }
+                        })
+                        .catch(function(err) {
+                            console.error('File load error:', err);
+                            showError();
+                        });
+                })();
+                </script>
 
                 {else}
                 <div class="preview-empty">

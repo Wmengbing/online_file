@@ -28,12 +28,25 @@ class Admin extends Base
             $user['storage_used_text'] = format_file_size($user['storage_used']);
             $user['storage_percent'] = round(($user['storage_used'] / $user['storage_quota']) * 100, 2);
             
-            $user['roles'] = \think\Db::name('roles')
-                ->alias('r')
-                ->join('user_roles ur', 'ur.role_id = r.id')
+            $user_roles_data = \think\Db::name('user_roles')
+                ->alias('ur')
+                ->join('roles r', 'r.id = ur.role_id')
                 ->where('ur.user_id', $user['id'])
-                ->column('r.name');
-            $user['roles_text'] = empty($user['roles']) ? '无' : implode('、', $user['roles']);
+                ->field('r.name, r.code, ur.is_manager')
+                ->select();
+            
+            $role_names = [];
+            $manager_roles = [];
+            foreach ($user_roles_data as $ur) {
+                $role_names[] = $ur['name'];
+                if ((int)$ur['is_manager'] === 1) {
+                    $manager_roles[] = $ur['name'];
+                }
+            }
+            $user['roles'] = $role_names;
+            $user['roles_text'] = empty($role_names) ? '无' : implode('、', $role_names);
+            $user['manager_roles'] = $manager_roles;
+            $user['manager_roles_text'] = empty($manager_roles) ? '' : implode('、', $manager_roles);
         }
         
         $this->assign('users', $users);
@@ -52,6 +65,7 @@ class Admin extends Base
             $phone = input('phone', '');
             $storage_quota = input('storage_quota', 10737418240);
             $role_ids = input('role_ids/a', []);
+            $manager_roles = input('manager_roles/a', []);
             
             if (!$username || !$password) {
                 return $this->error('用户名和密码不能为空');
@@ -74,7 +88,8 @@ class Admin extends Base
             if (!empty($role_ids)) {
                 $insert_data = [];
                 foreach ($role_ids as $role_id) {
-                    $insert_data[] = ['user_id' => $user_id, 'role_id' => $role_id];
+                    $is_manager = in_array($role_id, $manager_roles) ? 1 : 0;
+                    $insert_data[] = ['user_id' => $user_id, 'role_id' => $role_id, 'is_manager' => $is_manager];
                 }
                 \think\Db::name('user_roles')->insertAll($insert_data);
             }
@@ -120,12 +135,14 @@ class Admin extends Base
             }
             
             $role_ids = input('role_ids/a');
+            $manager_roles = input('manager_roles/a', []);
             if ($role_ids !== null) {
                 \think\Db::name('user_roles')->where('user_id', $user_id)->delete();
                 if (!empty($role_ids)) {
                     $insert_data = [];
                     foreach ($role_ids as $role_id) {
-                        $insert_data[] = ['user_id' => $user_id, 'role_id' => $role_id];
+                        $is_manager = in_array($role_id, $manager_roles) ? 1 : 0;
+                        $insert_data[] = ['user_id' => $user_id, 'role_id' => $role_id, 'is_manager' => $is_manager];
                     }
                     \think\Db::name('user_roles')->insertAll($insert_data);
                 }
@@ -141,12 +158,15 @@ class Admin extends Base
             $this->error('用户不存在');
         }
 
-        $user['user_roles'] = \think\Db::name('user_roles')->where('user_id', $user_id)->column('role_id');
+        $user_roles_data = \think\Db::name('user_roles')->where('user_id', $user_id)->select();
+        $user['user_roles'] = array_map(function($row) { return (int)$row['role_id']; }, $user_roles_data);
+        $user['manager_roles'] = array_map(function($row) { return (int)$row['role_id']; }, array_filter($user_roles_data, function($row) { return (int)$row['is_manager'] === 1; }));
 
         $roles = \think\Db::name('roles')->where('status', 1)->select();
 
         $this->assign('user', $user);
         $this->assign('user_role_ids', $user['user_roles']);
+        $this->assign('manager_role_ids', $user['manager_roles']);
         $this->assign('roles', $roles);
         return $this->fetch();
     }
@@ -218,6 +238,13 @@ class Admin extends Base
             return $this->error('该角色仍被 ' . $user_count . ' 个用户使用,请先解除关联');
         }
 
+        // 删除角色专属文件夹（移入回收站）
+        if ($role['folder_id'] > 0) {
+            \think\Db::name('files')
+                ->where('id', $role['folder_id'])
+                ->update(['status' => 0]);
+        }
+
         \think\Db::name('role_permissions')->where('role_id', $role_id)->delete();
         \think\Db::name('roles')->where('id', $role_id)->delete();
 
@@ -245,11 +272,22 @@ class Admin extends Base
                 return $this->error('角色编码已存在');
             }
             
+            // 创建角色专属文件夹（以角色名命名，归属管理员）
+            $folder_id = \think\Db::name('files')->insertGetId([
+                'user_id'   => $this->user_id,
+                'parent_id' => 0,
+                'name'      => $name,
+                'type'      => 2,
+                'path'      => '',
+                'status'    => 1,
+            ]);
+            
             $role_id = \think\Db::name('roles')->insertGetId([
                 'name'        => $name,
                 'code'        => $code,
                 'description' => $description,
                 'status'      => 1,
+                'folder_id'   => $folder_id,
             ]);
             
             if (!empty($permission_ids)) {
@@ -260,7 +298,7 @@ class Admin extends Base
                 \think\Db::name('role_permissions')->insertAll($insert_data);
             }
             
-            log_operation('user', 'create_role', '创建角色:' . $name);
+            log_operation('user', 'create_role', '创建角色:' . $name . ', 自动创建文件夹:' . $name);
             
             return $this->success('创建成功', 'index/admin/roles');
         }

@@ -428,22 +428,51 @@ function formatSize(bytes) {
 // ---------- 事件绑定 ----------
 $(function() {
     var $zone = $('#dropZone');
-    $zone.on('click', function(e) { if (e.target.tagName !== 'A') $('#fileInput').trigger('click'); });
-    $('#fileInput').on('change', function() { addFiles(this.files); this.value = ''; });
+    var $fileInput = $('#fileInput');
+    var isTriggering = false;
+    
+    // 点击上传区域（排除链接）
+    $zone.on('click', function(e) {
+        if (isTriggering) return;
+        if (e.target.tagName === 'A' || $(e.target).closest('a').length) return;
+        
+        isTriggering = true;
+        e.preventDefault();
+        e.stopPropagation();
+        $fileInput.trigger('click');
+        setTimeout(function() { isTriggering = false; }, 100);
+    });
+    
+    // 文件选择变化
+    $fileInput.on('change', function(e) {
+        e.stopPropagation();
+        addFiles(this.files);
+        this.value = '';
+    });
+    
+    // 拖拽事件
     $zone.on('dragover', function(e) {
         e.preventDefault();
+        e.stopPropagation();
         $(this).addClass('dragover');
     });
+    
     $zone.on('dragleave', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
         $(this).removeClass('dragover');
     });
+    
     $zone.on('drop', function(e) {
         e.preventDefault();
+        e.stopPropagation();
         $(this).removeClass('dragover');
         if (e.originalEvent.dataTransfer && e.originalEvent.dataTransfer.files.length) {
             addFiles(e.originalEvent.dataTransfer.files);
         }
     });
+    
+    // 按钮事件
     $('#startAllBtn').on('click', startAll);
     $('#clearAllBtn').on('click', function() {
         uploads = uploads.filter(function(u) { return u.status === 'running' || u.status === 'done'; });

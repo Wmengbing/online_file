@@ -70,8 +70,127 @@ class Base extends Controller
             ->where('ur.user_id', $this->user_id)
             ->where('p.code', $permission_code)
             ->value('p.code');
-            
+             
         return !!$permission;
+    }
+
+    protected function getCurrentRoleIds()
+    {
+        if (!$this->user_id) {
+            return [];
+        }
+
+        $role_ids = Db::name('user_roles')
+            ->where('user_id', $this->user_id)
+            ->column('role_id');
+
+        return array_values(array_unique(array_map('intval', (array)$role_ids)));
+    }
+
+    protected function getAccessibleUserIds()
+    {
+        if (!$this->user_id) {
+            return [];
+        }
+
+        if ($this->checkAdmin(false)) {
+            return null;
+        }
+
+        $role_ids = $this->getCurrentRoleIds();
+        $user_ids = [$this->user_id];
+
+        if (!empty($role_ids)) {
+            $shared = Db::name('user_roles')
+                ->where('role_id', 'in', $role_ids)
+                ->column('user_id');
+
+            foreach ((array)$shared as $shared_user_id) {
+                $user_ids[] = (int)$shared_user_id;
+            }
+        }
+
+        return array_values(array_unique($user_ids));
+    }
+
+    /**
+     * 检查当前用户是否为某个角色的管理者
+     * @param int|null $role_id 指定角色ID，null则检查所有角色
+     * @return bool
+     */
+    protected function isRoleManager($role_id = null)
+    {
+        if (!$this->user_id) {
+            return false;
+        }
+
+        $query = Db::name('user_roles')
+            ->where('user_id', $this->user_id)
+            ->where('is_manager', 1);
+
+        if ($role_id !== null) {
+            $query->where('role_id', (int)$role_id);
+        }
+
+        return $query->count() > 0;
+    }
+
+    /**
+     * 获取当前用户管理的角色ID列表
+     * @return array
+     */
+    protected function getManagedRoleIds()
+    {
+        if (!$this->user_id) {
+            return [];
+        }
+
+        $role_ids = Db::name('user_roles')
+            ->where('user_id', $this->user_id)
+            ->where('is_manager', 1)
+            ->column('role_id');
+
+        return array_values(array_unique(array_map('intval', (array)$role_ids)));
+    }
+
+    /**
+     * 检查当前用户是否可以管理指定文件
+     * 角色管理者可以管理同组用户的文件
+     * @param array $file 文件信息
+     * @return bool
+     */
+    protected function canManageFile($file)
+    {
+        if (empty($file)) {
+            return false;
+        }
+
+        // 超级管理员可以管理所有文件
+        if ($this->checkAdmin(false)) {
+            return true;
+        }
+
+        // 文件所有者可以管理自己的文件
+        if ((int)$file['user_id'] === (int)$this->user_id) {
+            return true;
+        }
+
+        // 角色管理者可以管理同组用户的文件
+        $managed_roles = $this->getManagedRoleIds();
+        if (empty($managed_roles)) {
+            return false;
+        }
+
+        $owner_roles = Db::name('user_roles')
+            ->where('user_id', (int)$file['user_id'])
+            ->column('role_id');
+
+        if (empty($owner_roles)) {
+            return false;
+        }
+
+        $shared_roles = array_intersect(array_map('intval', $managed_roles), array_map('intval', $owner_roles));
+        return !empty($shared_roles);
     }
 
     protected function success($msg = '', $url = null, $data = '', $wait = 3, array $header = [])
