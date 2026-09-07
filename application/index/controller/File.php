@@ -23,24 +23,37 @@ class File extends Base
         $parent_id = input('parent_id', 0);
         $keyword = input('keyword', '');
         
+        $is_admin = $this->checkAdmin(false);
+        
+        // 确保用户有个人文件夹
+        $this->ensurePersonalFolder();
+        
         $query = Db::name('files')
             ->where('parent_id', $parent_id)
             ->where('status', 1);
         $this->applyAccessFilter($query);
         
-        // 非管理员：只显示角色对应的文件夹
-        if (!$this->checkAdmin(false)) {
+        // 非管理员：显示角色文件夹和个人文件夹
+        if (!$is_admin) {
             $role_folder_ids = $this->getRoleFolderIds();
-            if (!empty($role_folder_ids)) {
-                // 如果查询的是根目录（parent_id=0），只显示角色文件夹
-                if ($parent_id == 0) {
-                    $query->where('id', 'in', $role_folder_ids);
+            $personal_folder_id = $this->getPersonalFolderId();
+            
+            if ($parent_id == 0) {
+                // 根目录：只显示自己的角色文件夹 + 自己的个人文件夹
+                $allowed_ids = array_merge($role_folder_ids, [$personal_folder_id]);
+                $allowed_ids = array_filter($allowed_ids);
+                if (!empty($allowed_ids)) {
+                    $query->where('id', 'in', $allowed_ids);
                 } else {
-                    // 如果在子目录中，检查是否在角色文件夹树下
-                    $in_role_tree = $this->isInRoleFolderTree($parent_id);
-                    if (!$in_role_tree) {
-                        $query->where('1=0');
-                    }
+                    // 如果没有角色文件夹和个人文件夹，显示空结果
+                    $query->where('1=0');
+                }
+            } else {
+                // 子目录：检查是否在角色文件夹树或个人文件夹树下
+                $in_role_tree = $this->isInRoleFolderTree($parent_id);
+                $in_personal_tree = $this->isInPersonalFolderTree($parent_id);
+                if (!$in_role_tree && !$in_personal_tree) {
+                    $query->where('1=0');
                 }
             }
         }
@@ -51,11 +64,22 @@ class File extends Base
         
         $files = $query->order('type', 'asc')->order('created_at', 'desc')->select();
         
+        // 获取所有文件上传者的用户ID
+        $user_ids = array_unique(array_column($files, 'user_id'));
+        $users = [];
+        if (!empty($user_ids)) {
+            $users = Db::name('users')
+                ->where('id', 'in', $user_ids)
+                ->column('username', 'id');
+        }
+        
         foreach ($files as &$file) {
             if ($file['type'] == 1) {
                 $file['size_text'] = format_file_size($file['size']);
             }
             $file['can_manage'] = $this->canManageFile($file);
+            // 添加上传者用户名
+            $file['uploader_username'] = isset($users[$file['user_id']]) ? $users[$file['user_id']] : '未知用户';
         }
         
         $parent = null;
@@ -75,6 +99,7 @@ class File extends Base
         $this->assign('keyword', $keyword);
         $this->assign('max_upload_text', format_file_size((int)app_cfg('max_file_size', 0)));
         $this->assign('default_parent_id', $this->getDefaultUploadParentId());
+        $this->assign('is_admin', $is_admin);
 
         return $this->fetch();
     }
@@ -170,7 +195,33 @@ class File extends Base
             ->where('status', 1)
             ->find();
 
-        return $folder && $this->canAccessFile($folder);
+        if (!$folder) {
+            return false;
+        }
+
+        // 个人文件夹只有所有者可以访问
+        if (!empty($folder['is_personal'])) {
+            return (int)$folder['user_id'] === (int)$this->user_id;
+        }
+
+        // 如果是管理员，可以访问所有文件夹
+        if ($this->checkAdmin(false)) {
+            return true;
+        }
+
+        // 如果是自己创建的文件夹，可以访问
+        if ((int)$folder['user_id'] === (int)$this->user_id) {
+            return true;
+        }
+
+        // 检查是否是当前用户所属角色的文件夹
+        $role_folder_ids = $this->getRoleFolderIds();
+        if (in_array((int)$folder_id, $role_folder_ids)) {
+            return true;
+        }
+
+        // 检查是否可以通过角色共享访问
+        return $this->canAccessFile($folder);
     }
 
     /**
@@ -189,6 +240,17 @@ class File extends Base
             ->where('status', 1)
             ->where('folder_id', '>', 0)
             ->column('folder_id');
+
+        // 如果通过角色没找到文件夹，尝试直接查询用户关联的角色文件夹
+        if (empty($folder_ids)) {
+            $folder_ids = Db::name('user_roles')
+                ->alias('ur')
+                ->join('roles r', 'r.id = ur.role_id')
+                ->where('ur.user_id', $this->user_id)
+                ->where('r.status', 1)
+                ->where('r.folder_id', '>', 0)
+                ->column('r.folder_id');
+        }
 
         return array_values(array_unique(array_map('intval', $folder_ids)));
     }
@@ -233,8 +295,96 @@ class File extends Base
     }
 
     /**
+     * 确保用户有个人文件夹
+     * @return int 个人文件夹ID
+     */
+    private function ensurePersonalFolder()
+    {
+        $personal_folder = Db::name('files')
+            ->where('user_id', $this->user_id)
+            ->where('is_personal', 1)
+            ->where('status', 1)
+            ->find();
+
+        if ($personal_folder) {
+            return (int)$personal_folder['id'];
+        }
+
+        $user = Db::name('users')->where('id', $this->user_id)->find();
+        $folder_name = $user['username'] . '的个人文件夹';
+
+        $folder_id = Db::name('files')->insertGetId([
+            'user_id'     => $this->user_id,
+            'parent_id'   => 0,
+            'name'        => $folder_name,
+            'type'        => 2,
+            'path'        => '',
+            'status'      => 1,
+            'is_personal' => 1,
+            'created_at'  => date('Y-m-d H:i:s'),
+            'updated_at'  => date('Y-m-d H:i:s'),
+        ]);
+
+        return (int)$folder_id;
+    }
+
+    /**
+     * 获取当前用户的个人文件夹ID
+     * @return int|null
+     */
+    private function getPersonalFolderId()
+    {
+        $folder_id = Db::name('files')
+            ->where('user_id', $this->user_id)
+            ->where('is_personal', 1)
+            ->where('status', 1)
+            ->value('id');
+
+        return $folder_id ? (int)$folder_id : null;
+    }
+
+    /**
+     * 检查指定文件夹ID是否在个人文件夹树下
+     * @param int $folder_id
+     * @return bool
+     */
+    private function isInPersonalFolderTree($folder_id)
+    {
+        $personal_folder_id = $this->getPersonalFolderId();
+        if (!$personal_folder_id) {
+            return false;
+        }
+
+        // 如果本身就是个人文件夹
+        if ((int)$folder_id === $personal_folder_id) {
+            return true;
+        }
+
+        // 向上查找父级，看是否在个人文件夹树下
+        $cursor = (int)$folder_id;
+        $guard = 0;
+        while ($cursor > 0 && $guard++ < 100) {
+            $parent_id = (int)Db::name('files')
+                ->where('id', $cursor)
+                ->value('parent_id');
+            
+            if ($parent_id == 0) {
+                return false;
+            }
+            
+            if ($parent_id === $personal_folder_id) {
+                return true;
+            }
+            
+            $cursor = $parent_id;
+        }
+
+        return false;
+    }
+
+    /**
      * 获取当前用户默认上传的目标文件夹ID
-     * 非管理员：返回角色文件夹ID
+     * 非管理员：优先返回个人文件夹，其次返回角色文件夹ID
      * 管理员：返回0（根目录）
      * @return int
      */
@@ -242,6 +392,12 @@ class File extends Base
     {
         if ($this->checkAdmin(false)) {
             return 0;
+        }
+
+        // 优先使用个人文件夹
+        $personal_folder_id = $this->getPersonalFolderId();
+        if ($personal_folder_id) {
+            return $personal_folder_id;
         }
 
         $role_folder_ids = $this->getRoleFolderIds();
@@ -256,6 +412,11 @@ class File extends Base
     {
         if (empty($file)) {
             return false;
+        }
+
+        // 个人文件夹只有所有者本人可以访问，超级管理员也不行
+        if (!empty($file['is_personal'])) {
+            return (int)$file['user_id'] === (int)$this->user_id;
         }
 
         if ($this->checkAdmin(false)) {
@@ -285,13 +446,46 @@ class File extends Base
 
     private function applyAccessFilter($query)
     {
+        // 超级管理员可以看到所有文件，但要排除其他人的个人文件夹
         if ($this->checkAdmin(false)) {
-            return $query;
+            return $query->where(function($q) {
+                // 排除其他人的个人文件夹
+                $q->where(function($subQ) {
+                    $subQ->where('is_personal', '<>', 1)
+                         ->whereOr('user_id', '=', $this->user_id);
+                });
+            });
         }
 
         $user_ids = $this->getAccessibleUserIds();
         if (empty($user_ids)) {
             return $query->where('1=0');
+        }
+
+        // 获取角色文件夹ID和个人文件夹ID
+        $role_folder_ids = $this->getRoleFolderIds();
+        $personal_folder_id = $this->getPersonalFolderId();
+        
+        $where_conditions = ['user_id', 'in', $user_ids];
+        
+        if (!empty($role_folder_ids)) {
+            // 允许用户看到：1) 自己/同组成员的文件 2) 角色文件夹 3) 个人文件夹
+            $allowed_ids = array_merge($role_folder_ids, [$personal_folder_id]);
+            $allowed_ids = array_filter($allowed_ids);
+            if (!empty($allowed_ids)) {
+                return $query->where(function($q) use ($user_ids, $allowed_ids) {
+                    $q->where('user_id', 'in', $user_ids)
+                      ->whereOr('id', 'in', $allowed_ids);
+                });
+            }
+        }
+        
+        // 如果没有角色文件夹，至少包含个人文件夹
+        if ($personal_folder_id) {
+            return $query->where(function($q) use ($user_ids, $personal_folder_id) {
+                $q->where('user_id', 'in', $user_ids)
+                  ->whereOr('id', '=', $personal_folder_id);
+            });
         }
 
         return $query->where('user_id', 'in', $user_ids);
@@ -721,7 +915,8 @@ class File extends Base
 
             foreach ($files as $file) {
                 // 递归收集整个目录树(含目录自身),目录、子孙目录、子孙文件全部一并移入回收站
-                $this->collectTree($file, $file['user_id'], $recycle_data, $ids_to_hide);
+                // 回收站记录的 user_id 使用当前删除操作者的 ID，这样删除者可以在回收站看到
+                $this->collectTree($file, $this->user_id, $recycle_data, $ids_to_hide);
             }
 
             if (!empty($ids_to_hide)) {
@@ -1116,11 +1311,10 @@ class File extends Base
         
         $file = Db::name('files')
             ->where('id', $file_id)
-            ->where('user_id', $this->user_id)
             ->where('status', 1)
             ->find();
             
-        if (!$file) {
+        if (!$file || !$this->canAccessFile($file)) {
             $this->error('文件不存在');
         }
         

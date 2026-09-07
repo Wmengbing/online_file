@@ -46,13 +46,30 @@ class Base extends Controller
             return false;
         }
 
+        // 先查询当前用户的角色ID
+        $user_role_ids = Db::name('user_roles')
+            ->where('user_id', $this->user_id)
+            ->column('role_id');
+
+        if (empty($user_role_ids)) {
+            if ($halt) {
+                $this->error('无权限访问');
+            }
+            return false;
+        }
+
+        // 再查询这些角色中是否有超级管理员或常见管理员角色（兼容不同编码/名称）
         $role = Db::name('roles')
-            ->alias('r')
-            ->join('user_roles ur', 'ur.role_id = r.id')
-            ->where('ur.user_id', $this->user_id)
-            ->where('r.code', 'super_admin')
-            ->where('r.status', 1)
-            ->value('r.id');
+            ->where('id', 'in', $user_role_ids)
+            ->where('status', 1)
+            ->where(function($q) {
+                $q->where('code', 'super_admin')
+                  ->whereOr('code', 'admin')
+                  ->whereOr('code', 'administrator')
+                  ->whereOr('name', 'like', '%管理员%')
+                  ->whereOr('code', 'super-admin');
+            })
+            ->value('id');
 
         if (!$role && $halt) {
             $this->error('无权限访问');

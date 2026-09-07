@@ -180,6 +180,7 @@
                     <tr>
                         <th width="40"><input type="checkbox" id="checkAll"></th>
                         <th>名称</th>
+                        <th width="100">上传者</th>
                         <th width="100">大小</th>
                         <th width="160">修改时间</th>
                         <th width="260">操作</th>
@@ -201,6 +202,7 @@
                             <span class="label label-warning" style="margin-left: 8px; font-size: 11px;"><i class="fa fa-star"></i> 可管理</span>
                             {/if}
                         </td>
+                        <td><span class="text-muted">{$file.uploader_username|default='未知用户'}</span></td>
                         <td>{$file.size_text|default='-'}</td>
                         <td>{$file.created_at}</td>
                         <td>

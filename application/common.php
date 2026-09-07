@@ -196,7 +196,7 @@ function app_cfg($key, $default = null)
 
 /**
  * 级联彻底删除文件树(含回收站内子孙),物理文件仅在无任何记录引用时删除(秒传去重安全)
- * @param int   $user_id   所属用户
+ * @param int   $user_id   所属用户(用于回收配额)
  * @param array $root_ids  根文件/目录ID(可为多个,自动合并重叠子树)
  * @return int 释放的配额字节数
  */
@@ -207,9 +207,8 @@ function hard_delete_file_tree($user_id, array $root_ids)
     }
 
     $all_ids = [];
-    $collect = function ($pid, &$out) use ($user_id, &$collect) {
+    $collect = function ($pid, &$out) use (&$collect) {
         $kids = \think\Db::name('files')
-            ->where('user_id', $user_id)
             ->where('parent_id', $pid)
             ->column('id');
         foreach ($kids as $kid) {
@@ -232,23 +231,25 @@ function hard_delete_file_tree($user_id, array $root_ids)
     }
     $all_ids = array_values(array_unique($all_ids));
 
+    // 不再使用 user_id 过滤，直接根据 ID 查询
     $rows = \think\Db::name('files')
-        ->where('user_id', $user_id)
         ->where('id', 'in', $all_ids)
         ->select();
 
+    // 查询回收站记录时，使用 file_id 匹配，不再限制 user_id
     $recycle_ids = \think\Db::name('file_recycle')
-        ->where('user_id', $user_id)
         ->where('file_id', 'in', $all_ids)
         ->column('id');
 
     // 物理删除(引用计数安全)
     $total_size = 0;
+    $file_owners = [];
     foreach ($rows as $row) {
         if ($row['type'] != 1 || !$row['path']) {
             continue;
         }
         $total_size += (int)$row['size'];
+        $file_owners[] = (int)$row['user_id'];
 
         $refs = \think\Db::name('files')
             ->where('path', $row['path'])
@@ -277,12 +278,16 @@ function hard_delete_file_tree($user_id, array $root_ids)
     }
     \think\Db::name('files')->where('id', 'in', $all_ids)->delete();
 
-    // 回收配额
-    if ($total_size > 0) {
-        \think\Db::name('users')
-            ->where('id', $user_id)
-            ->dec('storage_used', $total_size)
-            ->update();
+    // 回收配额 - 根据文件实际所有者回收
+    if ($total_size > 0 && !empty($file_owners)) {
+        $owner_counts = array_count_values(array_map('strval', $file_owners));
+        foreach ($owner_counts as $owner_id => $count) {
+            $owner_size = (int)($total_size * $count / count($file_owners));
+            \think\Db::name('users')
+                ->where('id', $owner_id)
+                ->dec('storage_used', $owner_size)
+                ->update();
+        }
     }
 
     return $total_size;
