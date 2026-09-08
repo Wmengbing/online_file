@@ -1,0 +1,45 @@
+{extend name="common/layout" /}
+
+{block name="content"}
+<div style="height:200px;display:flex;align-items:center;justify-content:center;">
+    <div class="content-box" style="max-width:520px;width:100%;text-align:center;">
+        <h3 id="flash-title"></h3>
+        <p id="flash-msg" class="text-muted"></p>
+        <div style="margin-top:18px;">
+            <button id="flash-ok" class="btn btn-primary">确定</button>
+        </div>
+    </div>
+</div>
+{/block}
+
+{block name="script"}
+<script>
+(function(){
+    var msg = "{$flash_msg|default=''}";
+    var url = "{$flash_url|default=''}";
+    var wait = parseInt("{$flash_wait|default='3'}");
+    var type = "{$flash_type|default='info'}";
+
+    var icon = (type === 'success') ? 1 : (type === 'error' ? 2 : 0);
+    // use layer to show a centered message and optionally redirect
+    layer.msg(msg, {icon: icon, time: wait*1000}, function(){
+        if (url) {
+            window.location.href = url;
+        } else {
+            // if no url provided, close the message and reload
+            window.history.length > 1 ? window.history.back() : location.reload();
+        }
+    });
+
+    // also bind the OK button
+    $(function(){
+        $('#flash-title').text(type === 'success' ? '操作成功' : (type === 'error' ? '操作失败' : '提示'));
+        $('#flash-msg').text(msg);
+        $('#flash-ok').on('click', function(){
+            if (url) window.location.href = url;
+            else window.history.length > 1 ? window.history.back() : location.reload();
+        });
+    });
+})();
+</script>
+{/block}
