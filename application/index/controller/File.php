@@ -147,7 +147,8 @@ class File extends Base
             
             log_operation('file', 'create_folder', '创建目录:' . $name);
             
-            return $this->success('创建成功', 'index/file/index', ['parent_id' => $parent_id]);
+            // redirect back to the file index with the same parent_id so user stays on the folder page
+            return $this->success('创建成功', url('index/file/index', ['parent_id' => $parent_id]));
         }
         
         $parent_id = input('parent_id', 0);
