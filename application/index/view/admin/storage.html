@@ -78,7 +78,7 @@
 <div class="modal fade" id="quotaModal">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form id="quotaForm">
+            <form method="post" id="quotaForm" action="{:url('index/admin/updateQuota')}" class="ajax-form">
                 <div class="modal-header">
                     <button type="button" class="close" data-dismiss="modal">&times;</button>
                     <h4 class="modal-title">修改存储配额</h4>
@@ -107,9 +107,5 @@ function updateQuota(userId, currentQuota) {
     $('#quotaModal').modal('show');
 }
 
-$('#quotaForm').on('submit', function(e) {
-    e.preventDefault();
-    ajaxPost('{:url("index/admin/updateQuota")}', $(this).serialize());
-});
 </script>
 {/block}
