@@ -312,7 +312,8 @@ class File extends Base
         }
 
         $user = Db::name('users')->where('id', $this->user_id)->find();
-        $folder_name = $user['username'] . '的个人文件夹';
+        $username = isset($user['username']) ? $user['username'] : ('用户' . ($this->user_id ?: ''));
+        $folder_name = $username . '的个人文件夹';
 
         $folder_id = Db::name('files')->insertGetId([
             'user_id'     => $this->user_id,
