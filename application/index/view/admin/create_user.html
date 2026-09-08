@@ -6,7 +6,7 @@
         <div class="content-box">
             <h3><i class="fa fa-plus"></i> 创建用户</h3>
             <hr>
-            <form method="post" id="createUserForm">
+            <form method="post" id="createUserForm" class="ajax-form" data-redirect="{:url('index/admin/users')}">
                 <div class="form-group">
                     <label>用户名 <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" name="username" required minlength="2" maxlength="50">
@@ -103,27 +103,6 @@ $(function() {
         }
     });
 
-    $('#createUserForm').on('submit', function(e) {
-        e.preventDefault();
-        $.ajax({
-            url: '{:url("index/admin/createUser")}',
-            type: 'POST',
-            data: $(this).serialize(),
-            dataType: 'json',
-            success: function(res) {
-                if (res.code == 200) {
-                    layer.msg(res.msg, {icon: 1}, function() {
-                        location.href = res.url || '{:url("index/admin/users")}';
-                    });
-                } else {
-                    layer.msg(res.msg || '操作失败', {icon: 2});
-                }
-            },
-            error: function() {
-                layer.msg('请求失败', {icon: 2});
-            }
-        });
-    });
 });
 </script>
 {/block}

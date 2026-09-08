@@ -2,6 +2,7 @@
 namespace app\index\controller;
 
 use think\Controller;
+use think\exception\HttpResponseException;
 use app\common\Jwt;
 use think\Db;
 
@@ -15,13 +16,21 @@ class Base extends Controller
         $this->user_id = Jwt::getCurrentUserId();
         if ($this->user_id) {
             $this->user_info = Jwt::getCurrentUser();
-            if ($this->user_info) {
-                $this->user_info['storage_quota_text'] = format_file_size($this->user_info['storage_quota']);
-                $this->user_info['storage_used_text']  = format_file_size($this->user_info['storage_used']);
-                $this->user_info['storage_percent']    = $this->user_info['storage_quota'] > 0
-                    ? round(($this->user_info['storage_used'] / $this->user_info['storage_quota']) * 100, 2)
-                    : 0;
+            if (empty($this->user_info)) {
+                // 会话里的用户已不存在(如被管理员删除):按未登录处理,checkLogin 会引导重新登录
+                Jwt::logout();
+                $this->user_id    = null;
+                $this->user_info  = [];
+                $this->assign('user_info', []);
+                $this->assign('is_logged_in', false);
+                $this->assign('is_admin', false);
+                return;
             }
+            $this->user_info['storage_quota_text'] = format_file_size($this->user_info['storage_quota']);
+            $this->user_info['storage_used_text']  = format_file_size($this->user_info['storage_used']);
+            $this->user_info['storage_percent']    = $this->user_info['storage_quota'] > 0
+                ? round(($this->user_info['storage_used'] / $this->user_info['storage_quota']) * 100, 2)
+                : 0;
             $this->assign('user_info', $this->user_info);
             $this->assign('is_logged_in', true);
             $this->assign('is_admin', $this->checkAdmin(false));
@@ -37,6 +46,8 @@ class Base extends Controller
     protected function checkLogin()
     {
         if (!$this->user_id) {
+            // 依赖 error() 抛出 HttpResponseException 终止执行(与框架 Jump 一致),
+            // 因此调用处无需 return,未登录即中断并跳转登录页
             $this->error('请先登录', 'index/auth/login');
         }
     }
@@ -215,46 +226,59 @@ class Base extends Controller
 
     protected function success($msg = '', $url = null, $data = '', $wait = 3, array $header = [])
     {
+        // 路由串(如 index/auth/login)统一转成已注册的规则 URL(如 /login.html),
+        // 否则浏览器会按 index/auth/login 这种默认路径访问,被框架判为"非法请求"404
+        $redirect = $url;
+        if (is_string($url) && $url !== '' && strpos($url, 'http') !== 0 && strpos($url, '/') !== 0) {
+            try {
+                $redirect = url($url);
+            } catch (\Exception $e) {
+                $redirect = $url;
+            }
+        }
         if ($this->request->isAjax()) {
             $resp = ['code' => 200, 'msg' => $msg, 'data' => $data];
-            if ($url) {
-                // convert route/string to URL when possible
-                try {
-                    $redirect = is_string($url) && strpos($url, 'http') !== 0 ? url($url) : $url;
-                } catch (\Exception $e) {
-                    $redirect = $url;
-                }
+            if ($redirect) {
                 $resp['url'] = $redirect;
             }
-            return json($resp);
+            throw new HttpResponseException(json($resp));
         }
         // For non-AJAX requests, show a lightweight popup using a shared flash view
+        // 必须抛出 HttpResponseException(与框架 Jump trait 一致):
+        // 否则裸调用 $this->error()/checkLogin() 不会中断,未登录时请求会继续执行并渲染出错
         $this->assign('flash_msg', $msg);
-        $this->assign('flash_url', $url ?: '');
+        $this->assign('flash_url', $redirect ?: '');
         $this->assign('flash_wait', (int)$wait);
         $this->assign('flash_type', 'success');
-        return $this->fetch('common/flash');
+        throw new HttpResponseException($this->fetch('common/flash'));
     }
 
     protected function error($msg = '', $url = null, $data = '', $wait = 3, array $header = [])
     {
+        // 路由串(如 index/auth/login)统一转成已注册的规则 URL(如 /login.html),
+        // 否则浏览器会按 index/auth/login 这种默认路径访问,被框架判为"非法请求"404
+        $redirect = $url;
+        if (is_string($url) && $url !== '' && strpos($url, 'http') !== 0 && strpos($url, '/') !== 0) {
+            try {
+                $redirect = url($url);
+            } catch (\Exception $e) {
+                $redirect = $url;
+            }
+        }
         if ($this->request->isAjax()) {
             $resp = ['code' => 400, 'msg' => $msg, 'data' => $data];
-            if ($url) {
-                try {
-                    $redirect = is_string($url) && strpos($url, 'http') !== 0 ? url($url) : $url;
-                } catch (\Exception $e) {
-                    $redirect = $url;
-                }
+            if ($redirect) {
                 $resp['url'] = $redirect;
             }
-            return json($resp);
+            throw new HttpResponseException(json($resp));
         }
         // For non-AJAX requests, show a lightweight popup using a shared flash view
+        // 必须抛出 HttpResponseException(与框架 Jump trait 一致):
+        // 否则裸调用 $this->error()/checkLogin() 不会中断,未登录时请求会继续执行并渲染出错
         $this->assign('flash_msg', $msg);
-        $this->assign('flash_url', $url ?: '');
+        $this->assign('flash_url', $redirect ?: '');
         $this->assign('flash_wait', (int)$wait);
         $this->assign('flash_type', 'error');
-        return $this->fetch('common/flash');
+        throw new HttpResponseException($this->fetch('common/flash'));
     }
 }

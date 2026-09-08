@@ -56,7 +56,7 @@
         <div class="form-card">
             <h3><i class="fa fa-arrows"></i> 移动文件</h3>
             <hr>
-            <form method="post" action="{:url('index/file/move')}">
+            <form method="post" action="{:url('index/file/move')}" class="ajax-form">
                 {foreach $file_ids as $fid}
                 <input type="hidden" name="file_ids[]" value="{$fid}">
                 {/foreach}

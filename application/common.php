@@ -2,6 +2,7 @@
 // 应用公共函数库
 
 use think\facade\Config;
+use think\Db;
 
 /**
  * 统一JSON响应格式
@@ -138,7 +139,7 @@ function get_client_ip()
  */
 function log_operation($module, $action, $description = '', $status = 1, $request_data = '', $response_data = '')
 {
-    \think\Db::name('operation_logs')->insert([
+    Db::name('operation_logs')->insert([
         'user_id'      => get_current_user_id() ?: 0,
         'module'       => $module,
         'action'       => $action,
@@ -164,7 +165,7 @@ function get_current_user_id()
  */
 function create_async_task($type, $payload, $scheduled_at = null)
 {
-    return \think\Db::name('async_tasks')->insertGetId([
+    return Db::name('async_tasks')->insertGetId([
         'type'         => $type,
         'payload'      => is_array($payload) ? json_encode($payload, JSON_UNESCAPED_UNICODE) : $payload,
         'scheduled_at' => $scheduled_at,
@@ -208,7 +209,7 @@ function hard_delete_file_tree($user_id, array $root_ids)
 
     $all_ids = [];
     $collect = function ($pid, &$out) use (&$collect) {
-        $kids = \think\Db::name('files')
+        $kids = Db::name('files')
             ->where('parent_id', $pid)
             ->column('id');
         foreach ($kids as $kid) {
@@ -232,12 +233,12 @@ function hard_delete_file_tree($user_id, array $root_ids)
     $all_ids = array_values(array_unique($all_ids));
 
     // 不再使用 user_id 过滤，直接根据 ID 查询
-    $rows = \think\Db::name('files')
+    $rows = Db::name('files')
         ->where('id', 'in', $all_ids)
         ->select();
 
     // 查询回收站记录时，使用 file_id 匹配，不再限制 user_id
-    $recycle_ids = \think\Db::name('file_recycle')
+    $recycle_ids = Db::name('file_recycle')
         ->where('file_id', 'in', $all_ids)
         ->column('id');
 
@@ -251,7 +252,7 @@ function hard_delete_file_tree($user_id, array $root_ids)
         $total_size += (int)$row['size'];
         $file_owners[] = (int)$row['user_id'];
 
-        $refs = \think\Db::name('files')
+        $refs = Db::name('files')
             ->where('path', $row['path'])
             ->where('id', '<>', $row['id'])
             ->count();
@@ -269,21 +270,21 @@ function hard_delete_file_tree($user_id, array $root_ids)
     }
 
     // 清理关联分享与内部共享
-    \think\Db::name('file_shares')->where('file_id', 'in', $all_ids)->delete();
-    \think\Db::name('file_internal_shares')->where('file_id', 'in', $all_ids)->delete();
+    Db::name('file_shares')->where('file_id', 'in', $all_ids)->delete();
+    Db::name('file_internal_shares')->where('file_id', 'in', $all_ids)->delete();
 
     // 删除数据库记录
     if (!empty($recycle_ids)) {
-        \think\Db::name('file_recycle')->where('id', 'in', $recycle_ids)->delete();
+        Db::name('file_recycle')->where('id', 'in', $recycle_ids)->delete();
     }
-    \think\Db::name('files')->where('id', 'in', $all_ids)->delete();
+    Db::name('files')->where('id', 'in', $all_ids)->delete();
 
     // 回收配额 - 根据文件实际所有者回收
     if ($total_size > 0 && !empty($file_owners)) {
         $owner_counts = array_count_values(array_map('strval', $file_owners));
         foreach ($owner_counts as $owner_id => $count) {
             $owner_size = (int)($total_size * $count / count($file_owners));
-            \think\Db::name('users')
+            Db::name('users')
                 ->where('id', $owner_id)
                 ->dec('storage_used', $owner_size)
                 ->update();
@@ -291,6 +292,136 @@ function hard_delete_file_tree($user_id, array $root_ids)
     }
 
     return $total_size;
+}
+
+/**
+ * 清理已过期回收站记录(含目录整棵子树,物理文件引用计数安全)。
+ * 原 TaskWorker::cleanRecycle 的实现下沉为公共函数,供常驻 worker 与 cron 调度共用。
+ */
+function clean_expired_recycle($days = 30)
+{
+    $expire_time = date('Y-m-d H:i:s', strtotime('-' . ((int)$days) . ' days'));
+
+    $expired = Db::name('file_recycle')
+        ->alias('r')
+        ->join('files f', 'f.id = r.file_id', 'LEFT')
+        ->where('r.expire_time', '<=', $expire_time)
+        ->where('f.id', 'not null')
+        ->field('r.user_id, r.file_id, r.id as recycle_id')
+        ->select();
+
+    if (empty($expired)) {
+        return ['deleted' => 0];
+    }
+
+    // 按用户分组,每用户一批执行(自动合并重叠子树)
+    $by_user = [];
+    foreach ($expired as $row) {
+        $by_user[(int)$row['user_id']][] = (int)$row['file_id'];
+    }
+
+    $total = 0;
+    foreach ($by_user as $user_id => $root_ids) {
+        $total += hard_delete_file_tree($user_id, $root_ids) > 0 ? 1 : 0;
+    }
+
+    // 兜底:硬删后仍残留的过期记录(指向已不存在文件等)直接清理
+    Db::name('file_recycle')->where('expire_time', '<=', $expire_time)->delete();
+
+    return ['deleted_trees' => count($by_user), 'users' => count($by_user)];
+}
+
+/**
+ * 清理超期未完成的分片(数据库记录 + 物理文件)
+ */
+function clean_stale_chunks($days = 7)
+{
+    $expire_time = date('Y-m-d H:i:s', strtotime("-{$days} days"));
+
+    $chunks = Db::name('file_chunks')
+        ->where('created_at', '<', $expire_time)
+        ->where('status', 0)
+        ->select();
+
+    $paths = [];
+    foreach ($chunks as $chunk) {
+        if ($chunk['chunk_path']) {
+            $paths[$chunk['chunk_path']] = 1;
+        }
+    }
+
+    foreach (array_keys($paths) as $path) {
+        $full_path = get_file_full_path($path);
+        if (file_exists($full_path)) {
+            @unlink($full_path);
+        }
+    }
+
+    Db::name('file_chunks')
+        ->where('created_at', '<', $expire_time)
+        ->where('status', 0)
+        ->delete();
+
+    // 清理遗留的空分片目录
+    $tmp_root = \think\facade\Env::get('root_path') . 'uploads' . DIRECTORY_SEPARATOR . 'tmp';
+    if (is_dir($tmp_root)) {
+        foreach (glob($tmp_root . DIRECTORY_SEPARATOR . '*', GLOB_ONLYDIR) ?: [] as $dir) {
+            $entries = @scandir($dir);
+            if ($entries !== false && count($entries) <= 2) {
+                @rmdir($dir);
+            }
+        }
+    }
+
+    return ['deleted_chunks' => count($chunks)];
+}
+
+/**
+ * 生成用户每日存储统计(重复执行时先清当日旧数据)
+ */
+function generate_daily_stats($date = null)
+{
+    $stat_date = $date ?: date('Y-m-d');
+
+    Db::name('storage_stats')->where('stat_date', $stat_date)->delete();
+
+    $users = Db::name('users')
+        ->where('deleted_at', null)
+        ->column('id');
+
+    $count = 0;
+    foreach ($users as $user_id) {
+        $total_files = Db::name('files')
+            ->where('user_id', $user_id)
+            ->where('type', 1)
+            ->where('status', 1)
+            ->count();
+
+        $total_size = (int)Db::name('files')
+            ->where('user_id', $user_id)
+            ->where('type', 1)
+            ->where('status', 1)
+            ->sum('size');
+
+        $file_type_stats = Db::name('files')
+            ->where('user_id', $user_id)
+            ->where('type', 1)
+            ->where('status', 1)
+            ->field('extension, COUNT(*) as count, SUM(size) as total_size')
+            ->group('extension')
+            ->select();
+
+        Db::name('storage_stats')->insert([
+            'user_id'         => $user_id,
+            'total_files'     => $total_files,
+            'total_size'      => $total_size,
+            'file_type_stats' => json_encode($file_type_stats, JSON_UNESCAPED_UNICODE),
+            'stat_date'       => $stat_date,
+        ]);
+        $count++;
+    }
+
+    return ['user_count' => $count, 'stat_date' => $stat_date];
 }
 
 /**
@@ -351,7 +482,7 @@ function collect_file_tree_rows($user_id, $root_id)
 {
     $rows = [];
     $walk = function ($id, $rel) use (&$rows, &$walk) {
-        $node = \think\Db::name('files')
+        $node = Db::name('files')
             ->where('id', $id)
             ->where('status', 1)
             ->find();
@@ -362,7 +493,7 @@ function collect_file_tree_rows($user_id, $root_id)
             $rows[] = ['node' => $node, 'rel' => $rel];
             return;
         }
-        $children = \think\Db::name('files')
+        $children = Db::name('files')
             ->where('parent_id', $id)
             ->where('status', 1)
             ->order('type', 'asc')
@@ -420,7 +551,7 @@ function getUsername($user_id)
     }
     if ($map === null) {
         // 请求内缓存:一次请求只查一次全量用户名映射
-        $map = \think\Db::name('users')->column('username', 'id');
+        $map = Db::name('users')->column('username', 'id');
     }
 
     return isset($map[$user_id]) ? $map[$user_id] : '已删除用户';

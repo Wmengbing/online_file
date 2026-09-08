@@ -10,8 +10,8 @@ return [
     'app_name'               => '文件共享系统',
     // 应用地址
     'app_host'               => '',
-    // 应用调试模式
-    'app_debug'              => true,
+    // 应用调试模式(生产环境在项目根 .env 中设置 APP_DEBUG = false 关闭)
+    'app_debug'              => env('APP_DEBUG', true),
     // 应用Trace
     'app_trace'              => false,
     // 是否支持多模块
@@ -42,7 +42,8 @@ return [
     'controller_suffix'      => false,
 
     // JWT配置
-    'jwt_secret'             => 'your-secret-key-change-in-production',
+    // 默认密钥为随机生成;生产部署务必在 .env 中配置 JWT_SECRET 覆盖(openssl rand -hex 32),勿泄露
+    'jwt_secret'             => env('JWT_SECRET', '067f9685dd678d8ead54d3ab5a8c99d8ff059dd31ff9aa6cadcbb01a25ae4dc4'),
     'jwt_expire'             => 604800,
 
     // 文件上传配置

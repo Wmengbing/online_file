@@ -6,7 +6,7 @@
         <div class="content-box">
             <h3><i class="fa fa-edit"></i> 编辑角色</h3>
             <hr>
-            <form method="post" action="{:url('index/admin/editRole')}">
+            <form method="post" action="{:url('index/admin/editRole')}" class="ajax-form">
                 <input type="hidden" name="role_id" value="{$role.id}">
                 <div class="form-group">
                     <label>角色名称 <span class="text-danger">*</span></label>

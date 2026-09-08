@@ -1,5 +1,6 @@
 <?php
 namespace app\index\controller;
+use think\Db;
 
 class Admin extends Base
 {
@@ -10,7 +11,7 @@ class Admin extends Base
         $keyword = input('keyword', '');
         $status = input('status');
         
-        $query = \think\Db::name('users')
+        $query = Db::name('users')
             ->where('deleted_at', null);
         
         if ($keyword) {
@@ -28,7 +29,7 @@ class Admin extends Base
             $user['storage_used_text'] = format_file_size($user['storage_used']);
             $user['storage_percent'] = round(($user['storage_used'] / $user['storage_quota']) * 100, 2);
             
-            $user_roles_data = \think\Db::name('user_roles')
+            $user_roles_data = Db::name('user_roles')
                 ->alias('ur')
                 ->join('roles r', 'r.id = ur.role_id')
                 ->where('ur.user_id', $user['id'])
@@ -71,12 +72,12 @@ class Admin extends Base
                 return $this->error('用户名和密码不能为空');
             }
             
-            $exists = \think\Db::name('users')->where('username', $username)->find();
+            $exists = Db::name('users')->where('username', $username)->find();
             if ($exists) {
                 return $this->error('用户名已存在');
             }
             
-            $user_id = \think\Db::name('users')->insertGetId([
+            $user_id = Db::name('users')->insertGetId([
                 'username'      => $username,
                 'password'      => password_hash($password, PASSWORD_DEFAULT),
                 'email'         => $email,
@@ -91,7 +92,7 @@ class Admin extends Base
                     $is_manager = in_array($role_id, $manager_roles) ? 1 : 0;
                     $insert_data[] = ['user_id' => $user_id, 'role_id' => $role_id, 'is_manager' => $is_manager];
                 }
-                \think\Db::name('user_roles')->insertAll($insert_data);
+                Db::name('user_roles')->insertAll($insert_data);
             }
             
             log_operation('user', 'create', '创建用户:' . $username);
@@ -99,7 +100,7 @@ class Admin extends Base
             return $this->success('创建成功', 'index/admin/users');
         }
         
-        $roles = \think\Db::name('roles')->where('status', 1)->select();
+        $roles = Db::name('roles')->where('status', 1)->select();
         $this->assign('roles', $roles);
         return $this->fetch();
     }
@@ -131,20 +132,20 @@ class Admin extends Base
             }
             
             if (!empty($data)) {
-                \think\Db::name('users')->where('id', $user_id)->update($data);
+                Db::name('users')->where('id', $user_id)->update($data);
             }
             
             $role_ids = input('role_ids/a');
             $manager_roles = input('manager_roles/a', []);
             if ($role_ids !== null) {
-                \think\Db::name('user_roles')->where('user_id', $user_id)->delete();
+                Db::name('user_roles')->where('user_id', $user_id)->delete();
                 if (!empty($role_ids)) {
                     $insert_data = [];
                     foreach ($role_ids as $role_id) {
                         $is_manager = in_array($role_id, $manager_roles) ? 1 : 0;
                         $insert_data[] = ['user_id' => $user_id, 'role_id' => $role_id, 'is_manager' => $is_manager];
                     }
-                    \think\Db::name('user_roles')->insertAll($insert_data);
+                    Db::name('user_roles')->insertAll($insert_data);
                 }
             }
             
@@ -153,16 +154,16 @@ class Admin extends Base
             return $this->success('编辑成功', 'index/admin/users');
         }
         
-        $user = \think\Db::name('users')->where('id', $user_id)->find();
+        $user = Db::name('users')->where('id', $user_id)->find();
         if (!$user) {
             $this->error('用户不存在');
         }
 
-        $user_roles_data = \think\Db::name('user_roles')->where('user_id', $user_id)->select();
+        $user_roles_data = Db::name('user_roles')->where('user_id', $user_id)->select();
         $user['user_roles'] = array_map(function($row) { return (int)$row['role_id']; }, $user_roles_data);
         $user['manager_roles'] = array_map(function($row) { return (int)$row['role_id']; }, array_filter($user_roles_data, function($row) { return (int)$row['is_manager'] === 1; }));
 
-        $roles = \think\Db::name('roles')->where('status', 1)->select();
+        $roles = Db::name('roles')->where('status', 1)->select();
 
         $this->assign('user', $user);
         $this->assign('user_role_ids', $user['user_roles']);
@@ -181,16 +182,16 @@ class Admin extends Base
             return $this->error('不能删除自己');
         }
         
-        $user = \think\Db::name('users')->where('id', $user_id)->find();
+        $user = Db::name('users')->where('id', $user_id)->find();
         if (!$user) {
             return $this->error('用户不存在');
         }
         
-        \think\Db::name('users')
+        Db::name('users')
             ->where('id', $user_id)
             ->update(['deleted_at' => date('Y-m-d H:i:s')]);
         
-        \think\Db::name('user_roles')->where('user_id', $user_id)->delete();
+        Db::name('user_roles')->where('user_id', $user_id)->delete();
         
         log_operation('user', 'delete', '删除用户:' . $user['username']);
         
@@ -201,17 +202,17 @@ class Admin extends Base
     {
         $this->checkAdmin();
         
-        $roles = \think\Db::name('roles')->order('id', 'asc')->select();
+        $roles = Db::name('roles')->order('id', 'asc')->select();
         
         foreach ($roles as &$role) {
-            $perm_names = \think\Db::name('permissions')
+            $perm_names = Db::name('permissions')
                 ->alias('p')
                 ->join('role_permissions rp', 'rp.permission_id = p.id')
                 ->where('rp.role_id', $role['id'])
                 ->column('p.name');
             $role['permissions']     = $perm_names;
             $role['permissions_text'] = empty($perm_names) ? '无' : implode('、', $perm_names);
-            $role['user_count']      = \think\Db::name('user_roles')->where('role_id', $role['id'])->count();
+            $role['user_count']      = Db::name('user_roles')->where('role_id', $role['id'])->count();
         }
 
         $this->assign('roles', $roles);
@@ -224,7 +225,7 @@ class Admin extends Base
 
         $role_id = input('role_id', 0);
 
-        $role = \think\Db::name('roles')->where('id', $role_id)->find();
+        $role = Db::name('roles')->where('id', $role_id)->find();
         if (!$role) {
             return $this->error('角色不存在');
         }
@@ -233,20 +234,20 @@ class Admin extends Base
             return $this->error('超级管理员角色不可删除');
         }
 
-        $user_count = \think\Db::name('user_roles')->where('role_id', $role_id)->count();
+        $user_count = Db::name('user_roles')->where('role_id', $role_id)->count();
         if ($user_count > 0) {
             return $this->error('该角色仍被 ' . $user_count . ' 个用户使用,请先解除关联');
         }
 
         // 删除角色专属文件夹（移入回收站）
         if ($role['folder_id'] > 0) {
-            \think\Db::name('files')
+            Db::name('files')
                 ->where('id', $role['folder_id'])
                 ->update(['status' => 0]);
         }
 
-        \think\Db::name('role_permissions')->where('role_id', $role_id)->delete();
-        \think\Db::name('roles')->where('id', $role_id)->delete();
+        Db::name('role_permissions')->where('role_id', $role_id)->delete();
+        Db::name('roles')->where('id', $role_id)->delete();
 
         log_operation('user', 'delete_role', '删除角色:' . $role['name']);
 
@@ -267,13 +268,13 @@ class Admin extends Base
                 return $this->error('角色名称和编码不能为空');
             }
             
-            $exists = \think\Db::name('roles')->where('code', $code)->find();
+            $exists = Db::name('roles')->where('code', $code)->find();
             if ($exists) {
                 return $this->error('角色编码已存在');
             }
             
             // 创建角色专属文件夹（以角色名命名，归属管理员）
-            $folder_id = \think\Db::name('files')->insertGetId([
+            $folder_id = Db::name('files')->insertGetId([
                 'user_id'   => $this->user_id,
                 'parent_id' => 0,
                 'name'      => $name,
@@ -282,7 +283,7 @@ class Admin extends Base
                 'status'    => 1,
             ]);
             
-            $role_id = \think\Db::name('roles')->insertGetId([
+            $role_id = Db::name('roles')->insertGetId([
                 'name'        => $name,
                 'code'        => $code,
                 'description' => $description,
@@ -295,7 +296,7 @@ class Admin extends Base
                 foreach ($permission_ids as $permission_id) {
                     $insert_data[] = ['role_id' => $role_id, 'permission_id' => $permission_id];
                 }
-                \think\Db::name('role_permissions')->insertAll($insert_data);
+                Db::name('role_permissions')->insertAll($insert_data);
             }
             
             log_operation('user', 'create_role', '创建角色:' . $name . ', 自动创建文件夹:' . $name);
@@ -303,7 +304,7 @@ class Admin extends Base
             return $this->success('创建成功', 'index/admin/roles');
         }
         
-        $permissions = \think\Db::name('permissions')->where('status', 1)->order('sort', 'asc')->select();
+        $permissions = Db::name('permissions')->where('status', 1)->order('sort', 'asc')->select();
         $this->assign('permission_groups', $this->buildPermissionGroups($permissions));
         return $this->fetch();
     }
@@ -327,18 +328,18 @@ class Admin extends Base
             if ($status !== null) $data['status'] = $status;
             
             if (!empty($data)) {
-                \think\Db::name('roles')->where('id', $role_id)->update($data);
+                Db::name('roles')->where('id', $role_id)->update($data);
             }
             
             $permission_ids = input('permission_ids/a');
             if ($permission_ids !== null) {
-                \think\Db::name('role_permissions')->where('role_id', $role_id)->delete();
+                Db::name('role_permissions')->where('role_id', $role_id)->delete();
                 if (!empty($permission_ids)) {
                     $insert_data = [];
                     foreach ($permission_ids as $permission_id) {
                         $insert_data[] = ['role_id' => $role_id, 'permission_id' => $permission_id];
                     }
-                    \think\Db::name('role_permissions')->insertAll($insert_data);
+                    Db::name('role_permissions')->insertAll($insert_data);
                 }
             }
             
@@ -347,14 +348,14 @@ class Admin extends Base
             return $this->success('编辑成功', 'index/admin/roles');
         }
         
-        $role = \think\Db::name('roles')->where('id', $role_id)->find();
+        $role = Db::name('roles')->where('id', $role_id)->find();
         if (!$role) {
             $this->error('角色不存在');
         }
 
-        $role_permissions = \think\Db::name('role_permissions')->where('role_id', $role_id)->column('permission_id');
+        $role_permissions = Db::name('role_permissions')->where('role_id', $role_id)->column('permission_id');
 
-        $permissions = \think\Db::name('permissions')->where('status', 1)->order('sort', 'asc')->select();
+        $permissions = Db::name('permissions')->where('status', 1)->order('sort', 'asc')->select();
 
         $this->assign('role', $role);
         $this->assign('role_permissions', $role_permissions);
@@ -399,7 +400,7 @@ class Admin extends Base
         $start_time = input('start_time', '');
         $end_time = input('end_time', '');
         
-        $query = \think\Db::name('operation_logs');
+        $query = Db::name('operation_logs');
         
         if ($module) $query->where('module', $module);
         if ($action) $query->where('action', $action);
@@ -409,7 +410,7 @@ class Admin extends Base
         
         $logs = $query->order('created_at', 'desc')->limit(100)->select();
         
-        $users = \think\Db::name('users')->where('deleted_at', null)->field('id,username')->select();
+        $users = Db::name('users')->where('deleted_at', null)->field('id,username')->select();
         
         foreach ($logs as &$log) {
             $log['status_text'] = $log['status'] == 1 ? '成功' : '失败';
@@ -431,13 +432,13 @@ class Admin extends Base
     {
         $this->checkAdmin();
         
-        $total_users = \think\Db::name('users')->where('deleted_at', null)->count();
-        $total_files = \think\Db::name('files')->where('status', 1)->count();
-        $total_storage = \think\Db::name('files')->where('type', 1)->where('status', 1)->sum('size');
-        $total_quota = \think\Db::name('users')->where('deleted_at', null)->sum('storage_quota');
-        $total_used = \think\Db::name('users')->where('deleted_at', null)->sum('storage_used');
+        $total_users = Db::name('users')->where('deleted_at', null)->count();
+        $total_files = Db::name('files')->where('status', 1)->count();
+        $total_storage = Db::name('files')->where('type', 1)->where('status', 1)->sum('size');
+        $total_quota = Db::name('users')->where('deleted_at', null)->sum('storage_quota');
+        $total_used = Db::name('users')->where('deleted_at', null)->sum('storage_used');
         
-        $users = \think\Db::name('users')
+        $users = Db::name('users')
             ->where('deleted_at', null)
             ->field('id,username,storage_quota,storage_used')
             ->order('storage_used', 'desc')
@@ -470,12 +471,12 @@ class Admin extends Base
             return $this->error('参数错误');
         }
         
-        $user = \think\Db::name('users')->where('id', $user_id)->find();
+        $user = Db::name('users')->where('id', $user_id)->find();
         if (!$user) {
             return $this->error('用户不存在');
         }
         
-        \think\Db::name('users')
+        Db::name('users')
             ->where('id', $user_id)
             ->update(['storage_quota' => $quota]);
         
@@ -488,7 +489,7 @@ class Admin extends Base
     {
         $this->checkAdmin();
         
-        $tasks = \think\Db::name('async_tasks')
+        $tasks = Db::name('async_tasks')
             ->order('created_at', 'desc')
             ->limit(100)
             ->select();

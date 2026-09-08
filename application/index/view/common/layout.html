@@ -339,17 +339,76 @@
     <script src="/static/vendor/layer/3.1.1/layer.js"></script>
     <script>
     function ajaxPost(url, data, callback) {
-        $.post(url, data, function(res) {
-            if (res.code == 200) {
-                layer.msg(res.msg, {icon: 1}, function() {
-                    if (callback) callback(res);
-                    else location.reload();
-                });
-            } else {
-                layer.msg(res.msg || '操作失败', {icon: 2});
-            }
-        }, 'json');
+        // Supports plain object or FormData
+        if (data instanceof FormData) {
+            $.ajax({
+                url: url,
+                type: 'POST',
+                data: data,
+                processData: false,
+                contentType: false,
+                dataType: 'json',
+                success: function(res) {
+                    if (res.code == 200) {
+                        layer.msg(res.msg, {icon: 1}, function() {
+                            if (callback) callback(res);
+                            else location.reload();
+                        });
+                    } else {
+                        layer.msg(res.msg || '操作失败', {icon: 2});
+                    }
+                },
+                error: function() {
+                    layer.msg('请求失败', {icon: 2});
+                }
+            });
+        } else {
+            $.post(url, data, function(res) {
+                if (res.code == 200) {
+                    layer.msg(res.msg, {icon: 1}, function() {
+                        if (callback) callback(res);
+                        else location.reload();
+                    });
+                } else {
+                    layer.msg(res.msg || '操作失败', {icon: 2});
+                }
+            }, 'json');
+        }
     }
+
+    // Global ajax form submit handler for forms marked with .ajax-form
+    $(document).on('submit', 'form.ajax-form', function(e) {
+        e.preventDefault();
+        var $form = $(this);
+        var url = $form.attr('action') || window.location.href;
+        var submitBtn = $form.find('[type=submit]').first();
+        if (submitBtn.length) {
+            submitBtn.prop('disabled', true).addClass('disabled');
+        }
+
+        var hasFile = $form.find('input[type=file]').length > 0;
+        if (hasFile) {
+            var fd = new FormData($form[0]);
+            ajaxPost(url, fd, function(res) {
+                if (submitBtn.length) {
+                    submitBtn.prop('disabled', false).removeClass('disabled');
+                }
+                if (res.code == 200) {
+                    var redirect = $form.data('redirect') || res.url || '';
+                    if (redirect) window.location.href = redirect;
+                }
+            });
+        } else {
+            var data = $form.serialize();
+            ajaxPost(url, data, function(res) {
+                if (submitBtn.length) {
+                    submitBtn.prop('disabled', false).removeClass('disabled');
+                }
+                var redirect = $form.data('redirect') || res.url || '';
+                if (redirect) window.location.href = redirect;
+            });
+        }
+    });
     </script>
 
     <div class="container">

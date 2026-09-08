@@ -15,8 +15,21 @@ class StreamResponse extends Response
     protected $inline;
     protected $cleanupPaths = [];
 
+    // 内联输出黑名单:这些类型交给浏览器会直接执行(存储型 XSS)。
+    // 上传的 html/svg 即使带 nosniff 也会被渲染,一律强制下载而非内联。
+    private static $unsafeInlineMimes = [
+        'text/html',
+        'application/xhtml+xml',
+        'image/svg+xml',
+    ];
+
     public function __construct($filePath, $downloadName = '', $inline = false, $mime = '', $cleanup = [])
     {
+        if ($inline && in_array(strtolower($mime), self::$unsafeInlineMimes)) {
+            $inline = false;
+            $mime   = 'application/octet-stream';
+        }
+
         $this->filePath     = $filePath;
         $this->downloadName = $downloadName;
         $this->inline       = $inline;

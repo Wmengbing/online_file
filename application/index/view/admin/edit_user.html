@@ -6,7 +6,7 @@
         <div class="content-box">
             <h3><i class="fa fa-edit"></i> 编辑用户</h3>
             <hr>
-            <form method="post" id="editUserForm">
+            <form method="post" id="editUserForm" class="ajax-form" data-redirect="{:url('index/admin/users')}">
                 <input type="hidden" name="user_id" value="{$user.id}">
                 <div class="form-group">
                     <label>用户名</label>
@@ -110,27 +110,6 @@ $(function() {
         }
     });
 
-    $('#editUserForm').on('submit', function(e) {
-        e.preventDefault();
-        $.ajax({
-            url: '{:url("index/admin/editUser")}',
-            type: 'POST',
-            data: $(this).serialize(),
-            dataType: 'json',
-            success: function(res) {
-                if (res.code == 200) {
-                    layer.msg(res.msg, {icon: 1}, function() {
-                        location.href = res.url || '{:url("index/admin/users")}';
-                    });
-                } else {
-                    layer.msg(res.msg || '操作失败', {icon: 2});
-                }
-            },
-            error: function() {
-                layer.msg('请求失败', {icon: 2});
-            }
-        });
-    });
 });
 </script>
 {/block}

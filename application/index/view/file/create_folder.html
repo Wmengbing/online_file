@@ -56,7 +56,7 @@
         <div class="form-card">
             <h3><i class="fa fa-folder"></i> 新建目录</h3>
             <hr>
-            <form method="post" action="{:url('index/file/createFolder')}">
+            <form method="post" action="{:url('index/file/createFolder')}" class="ajax-form">
                 <input type="hidden" name="parent_id" value="{$parent_id}">
                 <div class="form-group">
                     <label>目录名称</label>
