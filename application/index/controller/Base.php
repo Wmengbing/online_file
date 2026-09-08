@@ -28,6 +28,9 @@ class Base extends Controller
         } else {
             $this->assign('is_logged_in', false);
             $this->assign('is_admin', false);
+            // Ensure templates referencing user_info won't throw undefined variable notices
+            $this->user_info = null;
+            $this->assign('user_info', []);
         }
     }
 
@@ -213,16 +216,45 @@ class Base extends Controller
     protected function success($msg = '', $url = null, $data = '', $wait = 3, array $header = [])
     {
         if ($this->request->isAjax()) {
-            return json(['code' => 200, 'msg' => $msg, 'data' => $data]);
+            $resp = ['code' => 200, 'msg' => $msg, 'data' => $data];
+            if ($url) {
+                // convert route/string to URL when possible
+                try {
+                    $redirect = is_string($url) && strpos($url, 'http') !== 0 ? url($url) : $url;
+                } catch (\Exception $e) {
+                    $redirect = $url;
+                }
+                $resp['url'] = $redirect;
+            }
+            return json($resp);
         }
-        return parent::success($msg, $url, $data, $wait, $header);
+        // For non-AJAX requests, show a lightweight popup using a shared flash view
+        $this->assign('flash_msg', $msg);
+        $this->assign('flash_url', $url ?: '');
+        $this->assign('flash_wait', (int)$wait);
+        $this->assign('flash_type', 'success');
+        return $this->fetch('common/flash');
     }
 
     protected function error($msg = '', $url = null, $data = '', $wait = 3, array $header = [])
     {
         if ($this->request->isAjax()) {
-            return json(['code' => 400, 'msg' => $msg, 'data' => $data]);
+            $resp = ['code' => 400, 'msg' => $msg, 'data' => $data];
+            if ($url) {
+                try {
+                    $redirect = is_string($url) && strpos($url, 'http') !== 0 ? url($url) : $url;
+                } catch (\Exception $e) {
+                    $redirect = $url;
+                }
+                $resp['url'] = $redirect;
+            }
+            return json($resp);
         }
-        return parent::error($msg, $url, $data, $wait, $header);
+        // For non-AJAX requests, show a lightweight popup using a shared flash view
+        $this->assign('flash_msg', $msg);
+        $this->assign('flash_url', $url ?: '');
+        $this->assign('flash_wait', (int)$wait);
+        $this->assign('flash_type', 'error');
+        return $this->fetch('common/flash');
     }
 }
