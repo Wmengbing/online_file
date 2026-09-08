@@ -301,6 +301,11 @@ class File extends Base
      */
     private function ensurePersonalFolder()
     {
+        // If there is no current user (not logged in), don't attempt to create a personal folder
+        if (empty($this->user_id)) {
+            return 0;
+        }
+
         $personal_folder = Db::name('files')
             ->where('user_id', $this->user_id)
             ->where('is_personal', 1)
