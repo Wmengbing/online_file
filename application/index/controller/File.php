@@ -221,6 +221,11 @@ class File extends Base
             return true;
         }
 
+        // 检查是否在角色文件夹树下（包括子文件夹）
+        if ($this->isInRoleFolderTree($folder_id)) {
+            return true;
+        }
+
         // 检查是否可以通过角色共享访问
         return $this->canAccessFile($folder);
     }
@@ -293,6 +298,39 @@ class File extends Base
         }
 
         return false;
+    }
+
+    /**
+     * 获取角色文件夹树下的所有子文件夹ID（递归）
+     * @param array $role_folder_ids 角色文件夹ID数组
+     * @return array 所有子文件夹ID数组
+     */
+    private function getRoleFolderTreeIds($role_folder_ids)
+    {
+        if (empty($role_folder_ids)) {
+            return [];
+        }
+
+        $all_ids = [];
+        $queue = array_map('intval', $role_folder_ids);
+        $guard = 0;
+
+        while (!empty($queue) && $guard++ < 1000) {
+            $current_ids = array_splice($queue, 0, 100);
+            
+            $children = Db::name('files')
+                ->where('parent_id', 'in', $current_ids)
+                ->where('type', 2)
+                ->where('status', 1)
+                ->column('id');
+
+            if (!empty($children)) {
+                $all_ids = array_merge($all_ids, $children);
+                $queue = array_merge($queue, $children);
+            }
+        }
+
+        return array_unique($all_ids);
     }
 
     /**
@@ -434,6 +472,18 @@ class File extends Base
             return true;
         }
 
+        // 检查文件是否在角色文件夹树下
+        if ($this->isInRoleFolderTree((int)$file['parent_id'])) {
+            return true;
+        }
+
+        // 检查是否是角色文件夹本身
+        $role_folder_ids = $this->getRoleFolderIds();
+        if (in_array((int)$file['id'], $role_folder_ids)) {
+            return true;
+        }
+
+        // 检查是否可以通过角色共享访问（同组用户）
         $current_roles = $this->getCurrentRoleIds();
         if (empty($current_roles)) {
             return false;
@@ -473,29 +523,40 @@ class File extends Base
         $role_folder_ids = $this->getRoleFolderIds();
         $personal_folder_id = $this->getPersonalFolderId();
         
-        $where_conditions = ['user_id', 'in', $user_ids];
+        // 允许用户看到：
+        // 1) 自己/同组成员的文件
+        // 2) 角色文件夹本身
+        // 3) 个人文件夹
+        // 4) 角色文件夹树下的所有文件和文件夹（核心：让角色成员能看到角色文件夹下的所有内容）
         
-        if (!empty($role_folder_ids)) {
-            // 允许用户看到：1) 自己/同组成员的文件 2) 角色文件夹 3) 个人文件夹
-            $allowed_ids = array_merge($role_folder_ids, [$personal_folder_id]);
-            $allowed_ids = array_filter($allowed_ids);
-            if (!empty($allowed_ids)) {
-                return $query->where(function($q) use ($user_ids, $allowed_ids) {
-                    $q->where('user_id', 'in', $user_ids)
-                      ->whereOr('id', 'in', $allowed_ids);
-                });
+        return $query->where(function($q) use ($user_ids, $role_folder_ids, $personal_folder_id) {
+            // 条件1：同组成员的文件
+            $q->where('user_id', 'in', $user_ids);
+            
+            // 条件2：角色文件夹本身
+            if (!empty($role_folder_ids)) {
+                $q->whereOr('id', 'in', $role_folder_ids);
             }
-        }
-        
-        // 如果没有角色文件夹，至少包含个人文件夹
-        if ($personal_folder_id) {
-            return $query->where(function($q) use ($user_ids, $personal_folder_id) {
-                $q->where('user_id', 'in', $user_ids)
-                  ->whereOr('id', '=', $personal_folder_id);
-            });
-        }
-
-        return $query->where('user_id', 'in', $user_ids);
+            
+            // 条件3：个人文件夹
+            if ($personal_folder_id) {
+                $q->whereOr('id', '=', $personal_folder_id);
+            }
+            
+            // 条件4：在角色文件夹树下的所有文件和文件夹
+            // 包括：角色文件夹本身 + 所有子文件夹
+            if (!empty($role_folder_ids)) {
+                // 获取所有角色文件夹的子文件夹ID
+                $role_tree_ids = $this->getRoleFolderTreeIds($role_folder_ids);
+                // 合并角色文件夹本身和所有子文件夹
+                $all_role_folder_ids = array_merge($role_folder_ids, $role_tree_ids);
+                $all_role_folder_ids = array_unique($all_role_folder_ids);
+                
+                if (!empty($all_role_folder_ids)) {
+                    $q->whereOr('parent_id', 'in', $all_role_folder_ids);
+                }
+            }
+        });
     }
 
     private function handleUpload($file, $parent_id = 0)
@@ -722,6 +783,10 @@ class File extends Base
             $tree = collect_file_tree_rows($this->user_id, $fid);
             foreach ($tree as $item) {
                 $node = $item['node'];
+                // 检查用户是否有权限访问该文件
+                if (!$this->canAccessFile($node)) {
+                    continue;
+                }
                 $full = get_file_full_path($node['path']);
                 if (!file_exists($full)) {
                     continue;
@@ -884,14 +949,75 @@ class File extends Base
         $file_ids = input('file_ids/a', []);
         $this->assign('file_ids', $file_ids);
         
+        // 获取可访问的文件夹，排除其他人的个人文件夹
         $folders = Db::name('files')
             ->where('type', 2)
-            ->where('status', 1);
+            ->where('status', 1)
+            ->where(function($q) {
+                // 排除其他人的个人文件夹
+                $q->where('is_personal', '<>', 1)
+                  ->whereOr('user_id', '=', $this->user_id);
+            });
         $this->applyAccessFilter($folders);
-        $folders = $folders->select();
+        $folders = $folders->order('parent_id', 'asc')->order('id', 'asc')->select();
         
-        $this->assign('folders', $folders);
+        // 构建层级结构的文件夹列表
+        $folder_tree = $this->buildFolderTree($folders);
+        
+        $this->assign('folders', $folder_tree);
         return $this->fetch();
+    }
+
+    /**
+     * 构建文件夹树形结构（扁平化带缩进）
+     * @param array $folders 文件夹列表
+     * @return array 带层级的文件夹列表
+     */
+    private function buildFolderTree($folders)
+    {
+        if (empty($folders)) {
+            return [];
+        }
+
+        // 按 parent_id 分组
+        $children = [];
+        $root_folders = [];
+        foreach ($folders as $folder) {
+            $pid = (int)$folder['parent_id'];
+            if ($pid == 0) {
+                $root_folders[] = $folder;
+            } else {
+                if (!isset($children[$pid])) {
+                    $children[$pid] = [];
+                }
+                $children[$pid][] = $folder;
+            }
+        }
+
+        // 递归构建带层级的列表
+        $result = [];
+        $this->flattenTree($root_folders, $children, $result, 0);
+        return $result;
+    }
+
+    /**
+     * 递归扁平化树形结构
+     * @param array $nodes 当前层级的节点
+     * @param array $children 所有子节点映射
+     * @param array &$result 结果数组
+     * @param int $level 当前层级
+     */
+    private function flattenTree($nodes, $children, &$result, $level)
+    {
+        foreach ($nodes as $node) {
+            $node['level'] = $level;
+            $result[] = $node;
+            
+            $pid = (int)$node['id'];
+            if (isset($children[$pid])) {
+                $this->flattenTree($children[$pid], $children, $result, $level + 1);
+            }
+        }
     }
 
     public function delete()
@@ -1328,6 +1454,9 @@ class File extends Base
         if ($file['type'] == 1) {
             $file['size_text'] = format_file_size($file['size']);
         }
+        
+        // 检查用户是否有管理权限
+        $file['can_manage'] = $this->canManageFile($file);
         
         $this->assign('file', $file);
         return $this->fetch();

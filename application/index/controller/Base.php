@@ -186,7 +186,11 @@ class Base extends Controller
 
     /**
      * 检查当前用户是否可以管理指定文件
-     * 角色管理者可以管理同组用户的文件
+     * 权限规则：
+     * 1. 超级管理员可以管理所有文件
+     * 2. 角色管理者可以管理该角色文件夹下的所有文件
+     * 3. 文件/文件夹的创建者可以管理自己创建的内容
+     * 4. 其他普通用户只有查看和下载权限
      * @param array $file 文件信息
      * @return bool
      */
@@ -201,27 +205,84 @@ class Base extends Controller
             return true;
         }
 
-        // 文件所有者可以管理自己的文件
+        // 个人文件夹：只有所有者可以管理
+        if (!empty($file['is_personal'])) {
+            return (int)$file['user_id'] === (int)$this->user_id;
+        }
+
+        // 文件/文件夹的创建者可以管理自己创建的内容
         if ((int)$file['user_id'] === (int)$this->user_id) {
             return true;
         }
 
-        // 角色管理者可以管理同组用户的文件
+        // 检查文件是否在某个角色文件夹树下
+        $file_role_ids = $this->getFileRoleIds($file);
+        if (empty($file_role_ids)) {
+            return false;
+        }
+
+        // 检查当前用户是否是这些角色的管理者
         $managed_roles = $this->getManagedRoleIds();
         if (empty($managed_roles)) {
             return false;
         }
 
-        $owner_roles = Db::name('user_roles')
-            ->where('user_id', (int)$file['user_id'])
-            ->column('role_id');
+        $shared_roles = array_intersect(array_map('intval', $managed_roles), array_map('intval', $file_role_ids));
+        return !empty($shared_roles);
+    }
 
-        if (empty($owner_roles)) {
-            return false;
+    /**
+     * 获取文件所属的角色ID列表
+     * 通过向上查找父级文件夹，确定文件属于哪个角色
+     * @param array $file 文件信息
+     * @return array 角色ID数组
+     */
+    protected function getFileRoleIds($file)
+    {
+        if (empty($file)) {
+            return [];
         }
 
-        $shared_roles = array_intersect(array_map('intval', $managed_roles), array_map('intval', $owner_roles));
-        return !empty($shared_roles);
+        // 获取所有角色文件夹ID
+        $role_folders = Db::name('roles')
+            ->where('folder_id', '>', 0)
+            ->where('status', 1)
+            ->column('folder_id', 'id');
+
+        if (empty($role_folders)) {
+            return [];
+        }
+
+        $role_folder_ids = array_values($role_folders);
+        $role_ids = array_keys($role_folders);
+
+        // 如果文件本身就是角色文件夹
+        if (in_array((int)$file['id'], $role_folder_ids)) {
+            $key = array_search($file['id'], $role_folder_ids);
+            return [$role_ids[$key]];
+        }
+
+        // 向上查找父级，看是否在某个角色文件夹树下
+        $cursor = (int)$file['parent_id'];
+        $guard = 0;
+        while ($cursor > 0 && $guard++ < 100) {
+            if (in_array($cursor, $role_folder_ids)) {
+                $key = array_search($cursor, $role_folder_ids);
+                return [$role_ids[$key]];
+            }
+
+            $parent_id = (int)Db::name('files')
+                ->where('id', $cursor)
+                ->value('parent_id');
+
+            if ($parent_id == 0) {
+                break;
+            }
+
+            $cursor = $parent_id;
+        }
+
+        return [];
     }
 
     protected function success($msg = '', $url = null, $data = '', $wait = 3, array $header = [])

@@ -95,8 +95,10 @@
                 <a href="{:url('index/file/download', ['file_id' => $file.id])}" class="btn btn-primary"><i class="fa fa-download"></i> 下载</a>
                 <a href="{:url('index/share/create', ['file_id' => $file.id])}" class="btn btn-warning"><i class="fa fa-share"></i> 分享</a>
                 {/if}
+                {if $file.can_manage}
                 <a href="{:url('index/file/rename', ['file_id' => $file.id])}" class="btn btn-info"><i class="fa fa-edit"></i> 重命名</a>
                 <button class="btn btn-danger" onclick="deleteFile({$file.id})"><i class="fa fa-trash"></i> 删除</button>
+                {/if}
                 <a href="{:url('index/file/index')}" class="btn btn-default">返回</a>
             </div>
         </div>

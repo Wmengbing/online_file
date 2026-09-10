@@ -23,6 +23,7 @@ class Auth extends Base
             $user = Db::name('users')
                 ->where('username', $username)
                 ->where('status', 1)
+                ->where('deleted_at', null)
                 ->find();
                 
             if (!$user || !password_verify($password, $user['password'])) {

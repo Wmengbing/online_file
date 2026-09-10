@@ -45,17 +45,30 @@ class StreamResponse extends Response
     }
 
     /**
-     * 输出文件内容
+     * 输出文件内容。
+     *
+     * 注意:不能调用父类 Response::send() —— 它在 sendData 之后会执行
+     * fastcgi_finish_request()(php-fpm 下立即关闭与 nginx 的连接),
+     * 导致本方法后续 echo 的文件体被丢弃,浏览器报 ERR_CONTENT_LENGTH_MISMATCH。
+     * 因此这里手动发送状态码/头部,再循环输出文件体。
      */
     public function send()
     {
         $path = $this->filePath;
         $size = (int)@filesize($path);
 
+        // 清空框架/调试的输出缓冲,保证头部之后只输出文件流
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
         if (!is_file($path) || !is_readable($path)) {
             $this->code = 404;
             $this->header['Content-Type'] = 'text/plain; charset=utf-8';
-            return parent::send();
+            $this->header['Content-Length'] = '0';
+            $this->emitHeaders();
+            echo 'File not found';
+            return $this->finishRequest();
         }
 
         $start = 0;
@@ -76,7 +89,9 @@ class StreamResponse extends Response
                 $this->code = 416;
                 $this->header['Content-Range'] = 'bytes */' . $size;
                 $this->header['Content-Type'] = 'text/plain; charset=utf-8';
-                return parent::send();
+                $this->header['Content-Length'] = '0';
+                $this->emitHeaders();
+                return $this->finishRequest();
             }
             if ($end === null || $end >= $size) {
                 $end = $size - 1;
@@ -104,12 +119,7 @@ class StreamResponse extends Response
             $this->header['Content-Length'] = (string)$size;
         }
 
-        // 清空框架/调试的输出缓冲,保证后续只输出文件流
-        while (ob_get_level() > 0) {
-            ob_end_clean();
-        }
-
-        $result = parent::send();
+        $this->emitHeaders();
 
         $fp = @fopen($path, 'rb');
         if ($fp) {
@@ -135,6 +145,33 @@ class StreamResponse extends Response
             @unlink($tmp);
         }
 
-        return $result;
+        return $this->finishRequest();
+    }
+
+    /**
+     * 手动发送状态码与响应头(不走父类 send,避免 fastcgi_finish_request 掐断流)
+     */
+    protected function emitHeaders()
+    {
+        if (!headers_sent()) {
+            http_response_code($this->code);
+            foreach ($this->header as $name => $val) {
+                header($name . (!is_null($val) ? ':' . $val : ''));
+            }
+        }
+    }
+
+    /**
+     * 与框架收尾对齐:触发 response_end、清理会话(不提前结束请求)
+     */
+    protected function finishRequest()
+    {
+        if (isset($this->app['hook'])) {
+            $this->app['hook']->listen('response_end', $this);
+        }
+        if (isset($this->app['session'])) {
+            $this->app['session']->flush();
+        }
+        return '';
     }
 }

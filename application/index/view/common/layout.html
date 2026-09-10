@@ -356,10 +356,12 @@
                         });
                     } else {
                         layer.msg(res.msg || '操作失败', {icon: 2});
+                        if (callback) callback(res);
                     }
                 },
                 error: function() {
                     layer.msg('请求失败', {icon: 2});
+                    if (callback) callback({code: 500, msg: '请求失败'});
                 }
             });
         } else {
@@ -371,8 +373,12 @@
                     });
                 } else {
                     layer.msg(res.msg || '操作失败', {icon: 2});
+                    if (callback) callback(res);
                 }
-            }, 'json');
+            }, 'json').fail(function() {
+                layer.msg('请求失败', {icon: 2});
+                if (callback) callback({code: 500, msg: '请求失败'});
+            });
         }
     }
 

@@ -168,9 +168,9 @@
 
             <div id="batchBar" class="batch-bar">
                 <span class="text-muted">已选 <b id="selCount">0</b> 项</span>
-                <button type="button" class="btn btn-xs btn-warning" onclick="batchMove()"><i class="fa fa-arrows"></i> 移动</button>
+                <button type="button" class="btn btn-xs btn-warning batch-manage-btn" onclick="batchMove()"><i class="fa fa-arrows"></i> 移动</button>
                 <button type="button" class="btn btn-xs btn-primary" onclick="batchZip()"><i class="fa fa-file-archive-o"></i> 打包下载</button>
-                <button type="button" class="btn btn-xs btn-danger" onclick="batchDelete()"><i class="fa fa-trash"></i> 删除</button>
+                <button type="button" class="btn btn-xs btn-danger batch-manage-btn" onclick="batchDelete()"><i class="fa fa-trash"></i> 删除</button>
                 <button type="button" class="btn btn-xs btn-default" onclick="clearSelect()">取消选择</button>
             </div>
 
@@ -188,7 +188,7 @@
                 </thead>
                 <tbody>
                     {foreach $files as $file}
-                    <tr class="file-item" data-id="{$file.id}" data-type="{$file.type}">
+                    <tr class="file-item" data-id="{$file.id}" data-type="{$file.type}" data-can-manage="{$file.can_manage ? 1 : 0}">
                         <td><input type="checkbox" class="file-check" value="{$file.id}"></td>
                         <td>
                             {if $file.type == 2}
@@ -197,9 +197,6 @@
                             {else}
                             <i class="fa fa-file file-icon file"></i>
                             <a class="file-name" href="{:url('index/file/detail', ['file_id' => $file.id])}">{$file.name}</a>
-                            {/if}
-                            {if $file.can_manage && $file.user_id != $user_info.id}
-                            <span class="label label-warning" style="margin-left: 8px; font-size: 11px;"><i class="fa fa-star"></i> 可管理</span>
                             {/if}
                         </td>
                         <td><span class="text-muted">{$file.uploader_username|default='未知用户'}</span></td>
@@ -244,10 +241,29 @@ function selectedIds() {
     return ids;
 }
 
+function selectedCanManage() {
+    // 检查选中的文件是否都可以被当前用户管理
+    var allCanManage = true;
+    $('.file-check:checked').each(function() {
+        var row = $(this).closest('tr');
+        if (row.data('can-manage') != 1) {
+            allCanManage = false;
+            return false; // break
+        }
+    });
+    return allCanManage;
+}
+
 function updateBatchBar() {
     var n = selectedIds().length;
     $('#selCount').text(n);
     $('#batchBar').toggle(n > 0);
+    
+    // 根据权限控制批量操作按钮的显示
+    if (n > 0) {
+        var canManage = selectedCanManage();
+        $('.batch-manage-btn').toggle(canManage);
+    }
 }
 
 function clearSelect() {
@@ -258,6 +274,7 @@ function clearSelect() {
 function batchMove() {
     var ids = selectedIds();
     if (!ids.length) { layer.msg('请先勾选文件', {icon: 0}); return; }
+    if (!selectedCanManage()) { layer.msg('选中的文件中包含无权操作的文件', {icon: 0}); return; }
     location.href = '{:url("index/file/move")}?' + ids.map(function(i) { return 'file_ids[]=' + i; }).join('&');
 }
 
@@ -270,6 +287,7 @@ function batchZip() {
 function batchDelete() {
     var ids = selectedIds();
     if (!ids.length) { layer.msg('请先勾选文件', {icon: 0}); return; }
+    if (!selectedCanManage()) { layer.msg('选中的文件中包含无权操作的文件', {icon: 0}); return; }
     layer.confirm('确定要删除选中的 ' + ids.length + ' 项吗？文件将移入回收站', {icon: 3}, function() {
         ajaxPost('{:url("index/file/delete")}', {file_ids: ids});
     });

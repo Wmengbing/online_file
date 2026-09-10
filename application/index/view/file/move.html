@@ -65,7 +65,11 @@
                     <select class="form-control" name="target_parent_id">
                         <option value="0">根目录</option>
                         {foreach $folders as $folder}
-                        <option value="{$folder.id}">{$folder.name}</option>
+                        <option value="{$folder.id}" {if isset($folder.level)}style="padding-left: {$folder.level * 20 + 12}px"{/if}>
+                            {if isset($folder.level) && $folder.level > 0}
+                            {for start="1" end="$folder.level"}&nbsp;&nbsp;&nbsp;&nbsp;{/for}└─ {/if}
+                            {$folder.name}
+                        </option>
                         {/foreach}
                     </select>
                 </div>
