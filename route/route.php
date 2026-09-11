@@ -30,6 +30,11 @@ Route::post('file/chunkUpload', 'index/file/chunkUpload')->completeMatch();
 Route::get('file/chunkStatus', 'index/file/chunkStatus')->completeMatch();
 Route::post('file/chunkMerge', 'index/file/chunkMerge')->completeMatch();
 
+// 上传任务管理
+Route::get('file/uploadTasks', 'index/file/uploadTasks')->completeMatch();
+Route::get('file/getUploadTasks', 'index/file/getUploadTasks')->completeMatch();
+Route::post('file/deleteUploadTask', 'index/file/deleteUploadTask')->completeMatch();
+
 // 分享管理
 Route::get('share', 'index/share/index')->completeMatch();
 Route::any('share/create', 'index/share/create')->completeMatch();

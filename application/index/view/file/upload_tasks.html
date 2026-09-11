@@ -1,0 +1,235 @@
+{extend name="common/layout" /}
+
+{block name="title"}上传任务管理 - 文件共享系统{/block}
+
+{block name="content"}
+<style>
+    .upload-tasks-page {
+        position: relative;
+        overflow: hidden;
+    }
+    .upload-tasks-page:before {
+        content: "";
+        position: absolute;
+        inset: 0 auto auto 0;
+        width: 220px;
+        height: 220px;
+        background: radial-gradient(circle, rgba(96,165,250,0.18), rgba(96,165,250,0));
+        pointer-events: none;
+    }
+    .upload-tasks-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+        position: relative;
+        z-index: 1;
+    }
+    .upload-tasks-header h3 {
+        margin: 0;
+        color: #1e293b;
+        font-weight: 700;
+    }
+    .upload-tasks-header h3 .fa {
+        color: #2563eb;
+        margin-right: 8px;
+    }
+    .filter-tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+        position: relative;
+        z-index: 1;
+    }
+    .filter-tabs .btn {
+        border-radius: 8px;
+    }
+    .filter-tabs .btn.active {
+        background: #2563eb;
+        color: #fff;
+        border-color: #2563eb;
+    }
+    .task-progress {
+        margin: 0;
+        height: 12px;
+        background: #edf2ff;
+        border-radius: 999px;
+        overflow: hidden;
+    }
+    .task-progress .progress-bar {
+        background: linear-gradient(90deg, #60a5fa, #2563eb);
+        border-radius: 999px;
+        line-height: 12px;
+        font-size: 9px;
+        color: #fff;
+        min-width: 20px;
+    }
+    .task-file-name {
+        font-weight: 600;
+        color: #1e293b;
+    }
+    .status-badge {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .status-uploading {
+        background: #dbeafe;
+        color: #2563eb;
+    }
+    .status-done {
+        background: #d1fae5;
+        color: #059669;
+    }
+    .status-error {
+        background: #fee2e2;
+        color: #dc2626;
+    }
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #94a3b8;
+    }
+    .empty-state .fa {
+        font-size: 48px;
+        margin-bottom: 16px;
+        display: block;
+    }
+    @media (max-width: 767px) {
+        .upload-tasks-header {
+            display: block;
+        }
+        .upload-tasks-header .pull-right {
+            float: none !important;
+            margin-top: 12px;
+        }
+    }
+</style>
+<div class="row">
+    <div class="col-md-10 col-md-offset-1">
+        <div class="content-box upload-tasks-page">
+            <div class="upload-tasks-header">
+                <h3><i class="fa fa-tasks"></i> 上传任务管理</h3>
+                <a href="{:url('index/file/upload', ['parent_id' => $parent_id])}" class="btn btn-primary btn-sm"><i class="fa fa-upload"></i> 继续上传</a>
+            </div>
+            <p class="text-muted">
+                查看所有上传任务进度，即使关闭页面后仍可在此查看上传状态
+            </p>
+            <hr>
+
+            <div class="filter-tabs">
+                <button class="btn btn-default btn-sm {if $status === ''}active{/if}" onclick="filterTasks('')">全部</button>
+                <button class="btn btn-default btn-sm {if $status === '0'}active{/if}" onclick="filterTasks('0')">上传中</button>
+                <button class="btn btn-default btn-sm {if $status === '1'}active{/if}" onclick="filterTasks('1')">已完成</button>
+                <button class="btn btn-default btn-sm {if $status === '2'}active{/if}" onclick="filterTasks('2')">失败</button>
+            </div>
+
+            <div id="taskList">
+                {if empty($tasks)}
+                <div class="empty-state">
+                    <i class="fa fa-inbox"></i>
+                    <p>暂无上传任务</p>
+                </div>
+                {else}
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>文件名</th>
+                            <th width="120">大小</th>
+                            <th width="200">进度</th>
+                            <th width="100">状态</th>
+                            <th width="160">创建时间</th>
+                            <th width="80">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {foreach $tasks as $task}
+                        <tr data-task-id="{$task.id}">
+                            <td class="task-file-name">{$task.file_name}</td>
+                            <td>{$task.size_text}</td>
+                            <td>
+                                <div class="task-progress">
+                                    <div class="progress-bar" style="width: {$task.progress}%">{$task.progress}%</div>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="status-badge {if $task.status == 0}status-uploading{elseif $task.status == 1}status-done{else}status-error{/if}">
+                                    {$task.status_text}
+                                </span>
+                            </td>
+                            <td class="text-muted">{$task.created_at}</td>
+                            <td>
+                                {if $task.status != 0}
+                                <button class="btn btn-xs btn-danger" onclick="deleteTask({$task.id})"><i class="fa fa-trash"></i></button>
+                                {else}
+                                <span class="text-muted">-</span>
+                                {/if}
+                            </td>
+                        </tr>
+                        {/foreach}
+                    </tbody>
+                </table>
+                {/if}
+            </div>
+        </div>
+    </div>
+</div>
+{/block}
+
+{block name="script"}
+<script>
+function filterTasks(status) {
+    window.location.href = '{:url("index/file/uploadTasks")}' + (status !== '' ? '?status=' + status : '');
+}
+
+function deleteTask(taskId) {
+    layer.confirm('确定要删除此任务记录吗？', {icon: 3}, function() {
+        $.post('{:url("index/file/deleteUploadTask")}', {task_id: taskId}, function(res) {
+            if (res.code == 200) {
+                layer.msg('删除成功', {icon: 1}, function() {
+                    location.reload();
+                });
+            } else {
+                layer.msg(res.msg || '删除失败', {icon: 2});
+            }
+        }, 'json');
+    });
+}
+
+// 自动刷新上传中的任务
+{if $status === '' || $status === '0'}
+var refreshTimer = setInterval(function() {
+    var uploadingRows = document.querySelectorAll('.status-uploading');
+    if (uploadingRows.length > 0) {
+        $.get('{:url("index/file/getUploadTasks")}' + (location.search ? location.search : ''), function(res) {
+            if (res.code == 200 && res.data.length > 0) {
+                // 检查是否有状态变化
+                var hasChange = false;
+                res.data.forEach(function(task) {
+                    var row = document.querySelector('tr[data-task-id="' + task.id + '"]');
+                    if (row) {
+                        var oldProgress = row.querySelector('.progress-bar');
+                        if (oldProgress) {
+                            var oldWidth = parseInt(oldProgress.style.width) || 0;
+                            if (oldWidth !== task.progress) {
+                                hasChange = true;
+                            }
+                        }
+                    }
+                });
+                
+                if (hasChange) {
+                    location.reload();
+                }
+            }
+        }, 'json');
+    } else {
+        clearInterval(refreshTimer);
+    }
+}, 5000);
+{/if}
+</script>
+{/block}

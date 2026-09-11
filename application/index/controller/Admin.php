@@ -72,7 +72,7 @@ class Admin extends Base
                 return $this->error('用户名和密码不能为空');
             }
             
-            $exists = Db::name('users')->where('username', $username)->find();
+            $exists = Db::name('users')->where('username', $username)->whereNull('deleted_at')->find();
             if ($exists) {
                 return $this->error('用户名已存在');
             }

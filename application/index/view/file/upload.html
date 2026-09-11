@@ -133,7 +133,10 @@
         <div class="content-box upload-page">
             <div class="upload-header">
                 <h3><i class="fa fa-upload"></i> 上传文件</h3>
-                <a href="{:url('index/file/index', ['parent_id' => $parent_id])}" class="btn btn-default btn-sm">返回文件列表</a>
+                <div>
+                    <a href="{:url('index/file/uploadTasks')}" class="btn btn-info btn-sm" style="margin-right: 8px;"><i class="fa fa-tasks"></i> 查看上传任务</a>
+                    <a href="{:url('index/file/index', ['parent_id' => $parent_id])}" class="btn btn-default btn-sm">返回文件列表</a>
+                </div>
             </div>
             <p class="text-muted">
                 支持多文件与拖拽上传，超过 {$chunk_size_text} 自动分片并发上传，支持断点续传
@@ -176,9 +179,11 @@ var uploads = [];       // 队列
 var running = 0;
 var MAX_CONCURRENT = 2;
 var CHUNK_CONCURRENT = 3;
+var summaryShown = false;   // 本批次完成提示只弹一次
 
 // ---------- 队列管理 ----------
 function addFiles(fileList) {
+    summaryShown = false;
     for (var i = 0; i < fileList.length; i++) {
         var f = fileList[i];
         var same = uploads.filter(function(u) { return u.name === f.name && u.size === f.size && u.status !== 'done'; });
@@ -226,11 +231,25 @@ function setUpload(id, patch) {
     renderQueue();
 }
 
+// 只刷新进度条,不重建整张表(分片回调很频繁)
+function setProgress(id, progress) {
+    uploads.forEach(function(u) { if (u.id === id) { u.progress = progress; } });
+    var $bar = $('#queueTable tbody tr[data-id="' + id + '"] .progress-bar');
+    if ($bar.length) {
+        $bar.css('width', progress + '%').text(progress + '%');
+    } else {
+        renderQueue();
+    }
+}
+
 // ---------- 上传执行 ----------
 function startAll() {
     var pending = uploads.filter(function(u) { return u.status === 'wait' || u.status === 'error'; });
     if (pending.length === 0) { layer.msg('没有等待上传的文件', {icon: 0}); return; }
+    // 失败项重新入队(手动重试),避免失败后自动无限重传
+    pending.forEach(function(u) { u.status = 'wait'; u.errorMsg = ''; });
     $('#startAllBtn').prop('disabled', true);
+    renderQueue();
     pumpQueue();
 }
 
@@ -238,7 +257,7 @@ function pumpQueue() {
     while (running < MAX_CONCURRENT) {
         var u = null;
         for (var i = 0; i < uploads.length; i++) {
-            if (uploads[i].status === 'wait' || uploads[i].status === 'error') { u = uploads[i]; break; }
+            if (uploads[i].status === 'wait') { u = uploads[i]; break; }
         }
         if (!u) break;
         u.status = 'running';
@@ -248,18 +267,22 @@ function pumpQueue() {
             item.needChunk ? uploadChunked(item) : uploadSingle(item);
         })(u);
     }
-    // 全部结束后
-    var active = uploads.filter(function(u) { return u.status === 'wait' || u.status === 'running' || u.status === 'error'; }).length;
-    if (active === 0) {
-        $('#startAllBtn').prop('disabled', false);
-        var ok = uploads.filter(function(u) { return u.status === 'done'; }).length;
-        if (uploads.length > 0) {
-            layer.msg(ok + ' 个文件上传成功' + (ok < uploads.length ? ',部分失败请重试' : ''), {icon: ok === uploads.length ? 1 : 0, time: 1500}, function() {
-                if (ok === uploads.length) {
-                    window.location.href = '{:url("index/file/index", ["parent_id" => $parent_id])}';
-                }
-            });
-        }
+
+    // 没有等待/上传中的文件时,本批次结束
+    var busy = uploads.filter(function(u) { return u.status === 'wait' || u.status === 'running'; }).length;
+    if (busy > 0) return;
+
+    $('#startAllBtn').prop('disabled', false);
+
+    var ok = uploads.filter(function(u) { return u.status === 'done'; }).length;
+    var failed = uploads.filter(function(u) { return u.status === 'error'; }).length;
+    if (uploads.length > 0 && failed === 0 && !summaryShown) {
+        summaryShown = true;
+        layer.msg(ok + ' 个文件上传成功', {icon: 1, time: 1500}, function() {
+            window.location.href = '{:url("index/file/index", ["parent_id" => $parent_id])}';
+        });
+    } else if (failed > 0) {
+        layer.msg(failed + ' 个文件上传失败,请重试', {icon: 2, time: 1500});
     }
 }
 
@@ -312,7 +335,10 @@ function uploadChunked(item) {
             item.upload_id = res.data.upload_id;
             item.received = null;
             resumeChunked(item);
-        }, 'json');
+        }, 'json').fail(function() {
+            item.errorMsg = '初始化请求失败';
+            finishUpload(item, false);
+        });
     } else {
         resumeChunked(item);
     }
@@ -330,7 +356,10 @@ function resumeChunked(item) {
         var doneCount = item.total_chunks - missing.length;
         setUpload(item.id, {progress: Math.round(doneCount / item.total_chunks * 100)});
         sendChunks(item, missing);
-    }, 'json');
+    }, 'json').fail(function() {
+        item.errorMsg = '状态查询失败';
+        finishUpload(item, false);
+    });
 }
 
 function sendChunks(item, queue) {
@@ -338,30 +367,47 @@ function sendChunks(item, queue) {
         mergeChunked(item);
         return;
     }
-    var concurrent = Math.min(CHUNK_CONCURRENT, queue.length);
-    var runningNow = 0;
 
-    function next() {
-        if (queue.length === 0) {
-            if (--runningNow === 0) mergeChunked(item);
-            return;
-        }
-        runningNow++;
-        var idx = queue.shift();
+    var total = item.total_chunks;
+    var finished = total - queue.length;   // 已存在的分片(断点续传时跳过)
+    var cursor = 0;                        // 下一个待派发的分片下标
+    var inFlight = 0;                      // 正在上传的分片数
+    var remaining = queue.length;          // 本批次剩余未完成的分片数
+    var settled = false;                   // 本批次是否已结束(合并/失败)
+
+    function dispatch(idx) {
+        inFlight++;
         uploadOneChunk(item, idx, function(ok) {
+            inFlight--;
+            if (settled) return;
+
             if (!ok) {
-                item.errorMsg = '分片 ' + idx + ' 上传失败';
+                settled = true;
+                item.errorMsg = '分片 ' + (idx + 1) + '/' + total + ' 上传失败';
                 finishUpload(item, false);
                 return;
             }
-            var total = item.total_chunks;
-            var finished = total - queue.length - (runningNow > 0 ? runningNow - 1 : 0);
-            setUpload(item.id, {progress: Math.min(99, Math.round(finished / total * 100))});
-            next();
+
+            finished++;
+            remaining--;
+            setProgress(item.id, Math.min(99, Math.round(finished / total * 100)));
+
+            if (remaining === 0) {
+                settled = true;
+                mergeChunked(item);
+                return;
+            }
+            pump();
         });
     }
 
-    for (var i = 0; i < concurrent; i++) next();
+    function pump() {
+        while (!settled && inFlight < CHUNK_CONCURRENT && cursor < queue.length) {
+            dispatch(queue[cursor++]);
+        }
+    }
+
+    pump();
 }
 
 function uploadOneChunk(item, idx, cb) {
@@ -384,6 +430,7 @@ function uploadOneChunk(item, idx, cb) {
             data: fd,
             processData: false,
             contentType: false,
+            timeout: 300000,   // 单个分片卡死超过5分钟则中断重试,避免进度永远停住
             success: function(res) {
                 if (res && res.code == 200) cb(true);
                 else {
@@ -415,7 +462,10 @@ function mergeChunked(item) {
             item.errorMsg = res.msg || '合并失败';
             finishUpload(item, false);
         }
-    }, 'json');
+    }, 'json').fail(function() {
+        item.errorMsg = '合并请求失败';
+        finishUpload(item, false);
+    });
 }
 
 function formatSize(bytes) {

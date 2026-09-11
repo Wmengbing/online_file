@@ -1162,6 +1162,24 @@ class File extends Base
         $tmp_dir = $this->upload_path . '/tmp/u' . $this->user_id . '_' . $upload_id;
         create_directory($tmp_dir);
 
+        // 计算总分片数
+        $chunk_size = (int)app_cfg('chunk_size', 5242880);
+        $total_chunks = (int)ceil($total_size / $chunk_size);
+
+        // 保存上传任务到数据库
+        Db::name('upload_tasks')->insert([
+            'upload_id'     => $upload_id,
+            'user_id'       => $this->user_id,
+            'file_name'     => $file_name,
+            'total_size'    => $total_size,
+            'total_chunks'  => $total_chunks,
+            'uploaded_chunks' => 0,
+            'parent_id'     => $parent_id,
+            'status'        => 0,
+            'created_at'    => date('Y-m-d H:i:s'),
+            'updated_at'    => date('Y-m-d H:i:s'),
+        ]);
+
         return json(['code' => 200, 'msg' => 'ok', 'data' => ['upload_id' => $upload_id]]);
     }
 
@@ -1233,6 +1251,15 @@ class File extends Base
         } else {
             Db::name('file_chunks')->insert($data);
         }
+
+        // 更新上传任务的已上传分片数
+        Db::name('upload_tasks')
+            ->where('upload_id', $upload_id)
+            ->where('user_id', $this->user_id)
+            ->update([
+                'uploaded_chunks' => Db::raw('uploaded_chunks + 1'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
 
         return json(['code' => 200, 'msg' => '分片上传成功', 'data' => ['index' => $chunk_index]]);
     }
@@ -1403,6 +1430,16 @@ class File extends Base
 
         $this->cleanupChunkTask($upload_id);
 
+        // 更新上传任务状态为已完成
+        Db::name('upload_tasks')
+            ->where('upload_id', $upload_id)
+            ->where('user_id', $this->user_id)
+            ->update([
+                'status' => 1,
+                'file_id' => $file_id,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+
         log_operation('file', 'upload', '分片上传文件:' . $file_name);
 
         return json(['code' => 200, 'msg' => '上传完成', 'data' => [
@@ -1434,6 +1471,97 @@ class File extends Base
         if (is_dir($tmp_dir)) {
             @rmdir($tmp_dir);
         }
+    }
+
+    /**
+     * 上传任务管理页面
+     */
+    public function uploadTasks()
+    {
+        $this->checkLogin();
+        
+        $status = input('status', '');
+        
+        $query = Db::name('upload_tasks')
+            ->where('user_id', $this->user_id);
+        
+        if ($status !== '') {
+            $query->where('status', (int)$status);
+        }
+        
+        $tasks = $query->order('created_at', 'desc')->select();
+        
+        foreach ($tasks as &$task) {
+            $task['progress'] = $task['total_chunks'] > 0 ? round($task['uploaded_chunks'] / $task['total_chunks'] * 100) : 0;
+            $task['size_text'] = format_file_size($task['total_size']);
+            $task['status_text'] = [0 => '上传中', 1 => '已完成', 2 => '失败'][$task['status']] ?? '未知';
+        }
+        
+        $this->assign('tasks', $tasks);
+        $this->assign('status', $status);
+        $this->assign('parent_id', 0);
+        return $this->fetch();
+    }
+
+    /**
+     * 获取上传任务列表（AJAX）
+     */
+    public function getUploadTasks()
+    {
+        $this->checkLogin();
+        
+        $status = input('status', '');
+        
+        $query = Db::name('upload_tasks')
+            ->where('user_id', $this->user_id);
+        
+        if ($status !== '') {
+            $query->where('status', (int)$status);
+        }
+        
+        $tasks = $query->order('created_at', 'desc')->select();
+        
+        foreach ($tasks as &$task) {
+            $task['progress'] = $task['total_chunks'] > 0 ? round($task['uploaded_chunks'] / $task['total_chunks'] * 100) : 0;
+            $task['size_text'] = format_file_size($task['total_size']);
+            $task['status_text'] = [0 => '上传中', 1 => '已完成', 2 => '失败'][$task['status']] ?? '未知';
+        }
+        
+        return json(['code' => 200, 'data' => $tasks]);
+    }
+
+    /**
+     * 删除上传任务记录
+     */
+    public function deleteUploadTask()
+    {
+        $this->checkLogin();
+        
+        $task_id = input('task_id', 0);
+        
+        $task = Db::name('upload_tasks')
+            ->where('id', $task_id)
+            ->where('user_id', $this->user_id)
+            ->find();
+        
+        if (!$task) {
+            return json(['code' => 400, 'msg' => '任务不存在']);
+        }
+
+        // 上传中的任务:每上传一个分片就会刷新 updated_at,超过10分钟无进展视为已中断,
+        // 此时允许删除并顺带清掉残留分片;真正在上传的任务仍受保护
+        $stale = strtotime($task['updated_at']) < time() - 600;
+        if ($task['status'] == 0 && !$stale) {
+            return json(['code' => 400, 'msg' => '上传中的任务不能删除']);
+        }
+
+        if ($task['status'] == 0) {
+            $this->cleanupChunkTask($task['upload_id']);
+        }
+
+        Db::name('upload_tasks')->where('id', $task_id)->delete();
+
+        return json(['code' => 200, 'msg' => '删除成功']);
     }
 
     public function detail()

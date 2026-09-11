@@ -373,7 +373,13 @@ function clean_stale_chunks($days = 7)
         }
     }
 
-    return ['deleted_chunks' => count($chunks)];
+    // 清理中断后遗留的上传任务记录(仍标记为上传中,但已长时间无进展)
+    $stale_tasks = Db::name('upload_tasks')
+        ->where('status', 0)
+        ->where('updated_at', '<', $expire_time)
+        ->delete();
+
+    return ['deleted_chunks' => count($chunks), 'deleted_tasks' => $stale_tasks];
 }
 
 /**
