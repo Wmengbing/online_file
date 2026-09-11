@@ -92,10 +92,13 @@ class File extends Base
                 $parent = null;
             }
         }
+
+        $breadcrumbs = $this->getBreadcrumbs($parent_id);
         
         $this->assign('files', $files);
         $this->assign('parent_id', $parent_id);
         $this->assign('parent', $parent);
+        $this->assign('breadcrumbs', $breadcrumbs);
         $this->assign('keyword', $keyword);
         $this->assign('max_upload_text', format_file_size((int)app_cfg('max_file_size', 0)));
         $this->assign('default_parent_id', $this->getDefaultUploadParentId());
@@ -167,8 +170,9 @@ class File extends Base
             }
             
             $parent_id = input('parent_id', 0);
+            $relative_path = input('relative_path', '');
             
-            $file_info = $this->handleUpload($file, $parent_id);
+            $file_info = $this->handleUpload($file, $parent_id, $relative_path);
             if (isset($file_info['error'])) {
                 return $this->error($file_info['error']);
             }
@@ -183,6 +187,51 @@ class File extends Base
         $this->assign('chunk_size', (int)app_cfg('chunk_size', 5242880));
         $this->assign('chunk_size_text', format_file_size((int)app_cfg('chunk_size', 5242880)));
         return $this->fetch();
+    }
+
+    /**
+     * 获取当前目录的面包屑导航
+     * @param int $folder_id
+     * @return array
+     */
+    private function getBreadcrumbs($folder_id)
+    {
+        $folder_id = (int)$folder_id;
+        if ($folder_id <= 0) {
+            return [];
+        }
+
+        $breadcrumbs = [];
+        $visited = [];
+        $current_id = $folder_id;
+
+        while ($current_id > 0 && !isset($visited[$current_id])) {
+            $folder = Db::name('files')
+                ->where('id', $current_id)
+                ->where('type', 2)
+                ->where('status', 1)
+                ->field('id,parent_id,name')
+                ->find();
+
+            if (!$folder) {
+                break;
+            }
+
+            $breadcrumbs[] = [
+                'id' => (int)$folder['id'],
+                'name' => $folder['name'],
+                'is_current' => ((int)$folder['id'] === $folder_id),
+            ];
+
+            $visited[$current_id] = true;
+            $current_id = (int)$folder['parent_id'];
+        }
+
+        if (!empty($breadcrumbs)) {
+            $breadcrumbs = array_reverse($breadcrumbs);
+        }
+
+        return $breadcrumbs;
     }
 
     /**
@@ -559,15 +608,26 @@ class File extends Base
         });
     }
 
-    private function handleUpload($file, $parent_id = 0)
+    private function handleUpload($file, $parent_id = 0, $relative_path = '')
     {
         if ($parent_id > 0 && !$this->validateFolderOwner($parent_id)) {
             return ['error' => '目标目录不存在'];
         }
 
+        // 处理文件夹上传的相对路径
+        $actual_parent_id = $parent_id;
+        if (!empty($relative_path)) {
+            $path_parts = $this->parseRelativePath($relative_path);
+            if ($path_parts['folder_path']) {
+                $actual_parent_id = $this->ensureFolderPathExists($path_parts['folder_path'], $parent_id);
+            }
+            $file_name = $path_parts['file_name'];
+        } else {
+            $file_info = $file->getInfo();
+            $file_name = isset($file_info['name']) ? $file_info['name'] : $file->getFilename();
+        }
+
         $file_size = $file->getSize();
-        $file_info = $file->getInfo();
-        $file_name = isset($file_info['name']) ? $file_info['name'] : $file->getFilename();
         $extension = get_file_extension($file_name);
         
         if (!is_allowed_extension($extension)) {
@@ -590,7 +650,7 @@ class File extends Base
         if ($exist_file) {
             Db::name('files')->insert([
                 'user_id'   => $this->user_id,
-                'parent_id' => $parent_id,
+                'parent_id' => $actual_parent_id,
                 'name'      => $file_name,
                 'type'      => 1,
                 'mime_type' => get_mime_type($file->getPathname()),
@@ -618,16 +678,16 @@ class File extends Base
         
         $file->move($save_path, $save_name);
         
-        $relative_path = 'uploads/' . $date_path . '/' . $save_name;
+        $storage_path = 'uploads/' . $date_path . '/' . $save_name;
         
         Db::name('files')->insert([
             'user_id'   => $this->user_id,
-            'parent_id' => $parent_id,
+            'parent_id' => $actual_parent_id,
             'name'      => $file_name,
             'type'      => 1,
             'mime_type' => get_mime_type($full_path),
             'size'      => $file_size,
-            'path'      => $relative_path,
+            'path'      => $storage_path,
             'extension' => $extension,
             'hash'      => $file_hash,
             'status'    => 1,
@@ -639,6 +699,83 @@ class File extends Base
             ->update();
         
         return ['name' => $file_name, 'quick_upload' => false];
+    }
+
+    /**
+     * 解析相对路径，提取文件夹路径和文件名
+     * @param string $relative_path 例如: "folder1/subfolder/file.txt"
+     * @return array ['folder_path' => 'folder1/subfolder', 'file_name' => 'file.txt']
+     */
+    private function parseRelativePath($relative_path)
+    {
+        // 统一使用正斜杠
+        $relative_path = str_replace('\\', '/', $relative_path);
+        $relative_path = trim($relative_path, '/');
+        
+        if (empty($relative_path)) {
+            return ['folder_path' => '', 'file_name' => ''];
+        }
+        
+        // 分割路径
+        $parts = explode('/', $relative_path);
+        $file_name = array_pop($parts);
+        $folder_path = implode('/', $parts);
+        
+        return [
+            'folder_path' => $folder_path,
+            'file_name' => $file_name
+        ];
+    }
+
+    /**
+     * 确保文件夹路径存在，如果不存在则创建
+     * @param string $folder_path 文件夹路径，例如: "folder1/subfolder"
+     * @param int $parent_id 父目录ID
+     * @return int 最终文件夹ID
+     */
+    private function ensureFolderPathExists($folder_path, $parent_id)
+    {
+        if (empty($folder_path)) {
+            return $parent_id;
+        }
+        
+        // 统一使用正斜杠
+        $folder_path = str_replace('\\', '/', $folder_path);
+        $parts = explode('/', $folder_path);
+        
+        $current_parent_id = $parent_id;
+        
+        foreach ($parts as $folder_name) {
+            if (empty($folder_name)) {
+                continue;
+            }
+            
+            // 检查文件夹是否已存在
+            $existing_folder = Db::name('files')
+                ->where('parent_id', $current_parent_id)
+                ->where('name', $folder_name)
+                ->where('type', 2)
+                ->where('user_id', $this->user_id)
+                ->where('status', 1)
+                ->find();
+            
+            if ($existing_folder) {
+                $current_parent_id = (int)$existing_folder['id'];
+            } else {
+                // 创建新文件夹
+                $new_folder_id = Db::name('files')->insertGetId([
+                    'user_id'   => $this->user_id,
+                    'parent_id' => $current_parent_id,
+                    'name'      => $folder_name,
+                    'type'      => 2,
+                    'path'      => '',
+                    'status'    => 1,
+                ]);
+                $current_parent_id = $new_folder_id;
+            }
+        }
+        
+        return $current_parent_id;
     }
 
     public function download()
@@ -1136,20 +1273,32 @@ class File extends Base
         $file_name  = trim((string)input('file_name', ''));
         $total_size = (int)input('total_size', 0);
         $parent_id  = (int)input('parent_id', 0);
+        $relative_path = trim((string)input('relative_path', ''));
 
-        if ($file_name === '' || mb_strlen($file_name) > 255) {
+        // 处理文件夹上传的相对路径
+        $actual_parent_id = $parent_id;
+        $actual_file_name = $file_name;
+        if (!empty($relative_path)) {
+            $path_parts = $this->parseRelativePath($relative_path);
+            if ($path_parts['folder_path']) {
+                $actual_parent_id = $this->ensureFolderPathExists($path_parts['folder_path'], $parent_id);
+            }
+            $actual_file_name = $path_parts['file_name'];
+        }
+
+        if ($actual_file_name === '' || mb_strlen($actual_file_name) > 255) {
             return json(['code' => 400, 'msg' => '文件名不合法']);
         }
-        if (preg_match('/[\/\\\:\*\?\"\<\>\|]/', $file_name)) {
+        if (preg_match('/[\/\\\:\*\?\"\<\>\|]/', $actual_file_name)) {
             return json(['code' => 400, 'msg' => '文件名包含非法字符']);
         }
         if ($total_size <= 0 || $total_size > (int)app_cfg('max_file_size', 0)) {
             return json(['code' => 400, 'msg' => '文件大小超出限制']);
         }
-        if (!is_allowed_extension(get_file_extension($file_name))) {
+        if (!is_allowed_extension(get_file_extension($actual_file_name))) {
             return json(['code' => 400, 'msg' => '不允许上传此类型的文件']);
         }
-        if ($parent_id > 0 && !$this->validateFolderOwner($parent_id)) {
+        if ($actual_parent_id > 0 && !$this->validateFolderOwner($actual_parent_id)) {
             return json(['code' => 400, 'msg' => '目标目录不存在']);
         }
 
@@ -1170,11 +1319,11 @@ class File extends Base
         Db::name('upload_tasks')->insert([
             'upload_id'     => $upload_id,
             'user_id'       => $this->user_id,
-            'file_name'     => $file_name,
+            'file_name'     => $actual_file_name,
             'total_size'    => $total_size,
             'total_chunks'  => $total_chunks,
             'uploaded_chunks' => 0,
-            'parent_id'     => $parent_id,
+            'parent_id'     => $actual_parent_id,
             'status'        => 0,
             'created_at'    => date('Y-m-d H:i:s'),
             'updated_at'    => date('Y-m-d H:i:s'),
@@ -1312,6 +1461,7 @@ class File extends Base
         $parent_id    = (int)input('parent_id', 0);
         $total_chunks = (int)input('total_chunks', 0);
         $total_size   = (int)input('total_size', 0);
+        $relative_path = trim((string)input('relative_path', ''));
 
         if (!preg_match('/^[a-f0-9]{32}$/', $upload_id)) {
             return json(['code' => 400, 'msg' => 'upload_id 无效']);
@@ -1319,7 +1469,19 @@ class File extends Base
         if ($total_chunks <= 0 || $file_name === '') {
             return json(['code' => 400, 'msg' => '参数无效']);
         }
-        if ($parent_id > 0 && !$this->validateFolderOwner($parent_id)) {
+
+        // 处理文件夹上传的相对路径
+        $actual_parent_id = $parent_id;
+        $actual_file_name = $file_name;
+        if (!empty($relative_path)) {
+            $path_parts = $this->parseRelativePath($relative_path);
+            if ($path_parts['folder_path']) {
+                $actual_parent_id = $this->ensureFolderPathExists($path_parts['folder_path'], $parent_id);
+            }
+            $actual_file_name = $path_parts['file_name'];
+        }
+
+        if ($actual_parent_id > 0 && !$this->validateFolderOwner($actual_parent_id)) {
             return json(['code' => 400, 'msg' => '目标目录不存在']);
         }
 
@@ -1346,8 +1508,8 @@ class File extends Base
         $save_path = $this->upload_path . '/' . $date_path;
         create_directory($save_path);
 
-        $extension = get_file_extension($file_name);
-        $save_name = md5(uniqid() . $file_name . random_bytes(8)) . ($extension ? '.' . $extension : '');
+        $extension = get_file_extension($actual_file_name);
+        $save_name = md5(uniqid() . $actual_file_name . random_bytes(8)) . ($extension ? '.' . $extension : '');
         $final_path = $save_path . '/' . $save_name;
 
         // 逐块合并(流式,内存安全)
@@ -1412,8 +1574,8 @@ class File extends Base
 
         $file_id = Db::name('files')->insertGetId([
             'user_id'   => $this->user_id,
-            'parent_id' => $parent_id,
-            'name'      => $file_name,
+            'parent_id' => $actual_parent_id,
+            'name'      => $actual_file_name,
             'type'      => 1,
             'mime_type' => get_mime_type(get_file_full_path($rel_path)),
             'size'      => $real_size,

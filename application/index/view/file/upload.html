@@ -146,7 +146,9 @@
             <div id="dropZone" class="upload-dropzone text-center">
                 <i class="fa fa-cloud-upload"></i>
                 <p>将文件拖到此处，或 <a href="javascript:;" onclick="$('#fileInput').trigger('click')">点击选择文件</a></p>
+                <p style="margin-top: 10px;"><a href="javascript:void(0);" id="folderSelectLink" style="font-size: 14px;"><i class="fa fa-folder-open"></i> 选择文件夹上传</a></p>
                 <input type="file" id="fileInput" multiple style="display: none;">
+                <input type="file" id="folderInput" multiple webkitdirectory directory mozdirectory style="display: none;">
             </div>
 
             <table class="table table-striped" id="queueTable">
@@ -181,24 +183,203 @@ var MAX_CONCURRENT = 2;
 var CHUNK_CONCURRENT = 3;
 var summaryShown = false;   // 本批次完成提示只弹一次
 
-// ---------- 队列管理 ----------
-function addFiles(fileList) {
+
+// ---------- 文件夹选择 ----------
+function selectFolder() {
+    // 动态创建带 webkitdirectory 的 input，避免 display:none 导致 click() 无效
+    var oldInput = document.getElementById('folderInput');
+    if (oldInput && oldInput.parentNode) {
+        oldInput.parentNode.removeChild(oldInput);
+    }
+
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.id = 'folderInput';
+    input.webkitdirectory = true;
+    input.multiple = true;
+    input.style.position = 'absolute';
+    input.style.left = '-9999px';
+    input.style.top = '0';
+
+    input.onchange = function() {
+        if (this.files && this.files.length > 0) {
+            addFiles(this.files, true);
+        }
+        if (this.parentNode) {
+            this.parentNode.removeChild(this);
+        }
+    };
+
+    document.body.appendChild(input);
+    input.click();
+}
+
+function addFiles(fileList, isFolderUpload) {
     summaryShown = false;
+    var isFolder = isFolderUpload || false;
+
     for (var i = 0; i < fileList.length; i++) {
         var f = fileList[i];
         var same = uploads.filter(function(u) { return u.name === f.name && u.size === f.size && u.status !== 'done'; });
         if (same.length > 0) { continue; }
-        uploads.push({
+        
+        var uploadItem = {
             id: Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 8),
             file: f, name: f.name, size: f.size,
             needChunk: f.size > CHUNK_SIZE,
             upload_id: null, total_chunks: Math.ceil(f.size / CHUNK_SIZE),
             status: 'wait',        // wait/running/done/error
             progress: 0,
-            errorMsg: ''
-        });
+            errorMsg: '',
+            webkitRelativePath: f.webkitRelativePath || '',  // 保存相对路径
+            isFolderUpload: isFolder
+        };
+
+        uploads.push(uploadItem);
     }
     renderQueue();
+}
+
+function readDirectoryEntry(entry, basePath, files, done) {
+    var reader = entry.createReader();
+    var folderPath = basePath || entry.name || '';
+
+    function handleResults(results) {
+        if (!results || results.length === 0) {
+            done();
+            return;
+        }
+
+        var remaining = results.length;
+        if (remaining === 0) {
+            done();
+            return;
+        }
+
+        results.forEach(function(child) {
+            if (child.isFile) {
+                child.file(function(file) {
+                    if (file) {
+                        // 拖拽进来的文件 webkitRelativePath 恒为空串(只有 <input webkitdirectory> 才填充),
+                        // 这里必须用 entry.fullPath(如 /根目录/子目录/a.txt)兜底,否则目录结构会丢失
+                        var relative = file.webkitRelativePath
+                            || (child.fullPath ? String(child.fullPath).replace(/^\/+/, '') : '')
+                            || ((folderPath ? folderPath + '/' : '') + (file.name || child.name || ''));
+                        if (!file.webkitRelativePath) {
+                            file.webkitRelativePath = relative;
+                        }
+                        files.push(file);
+                    }
+                    remaining--;
+                    if (remaining === 0) {
+                        done();
+                    }
+                }, function() {
+                    remaining--;
+                    if (remaining === 0) {
+                        done();
+                    }
+                });
+            } else if (child.isDirectory) {
+                var childPath = (folderPath ? folderPath + '/' : '') + child.name;
+                readDirectoryEntry(child, childPath, files, function() {
+                    remaining--;
+                    if (remaining === 0) {
+                        done();
+                    }
+                });
+            } else {
+                remaining--;
+                if (remaining === 0) {
+                    done();
+                }
+            }
+        });
+    }
+
+    reader.readEntries(function(results) {
+        handleResults(results);
+    }, function() {
+        done();
+    });
+}
+
+function collectDroppedFiles(dataTransfer, callback) {
+    if (!dataTransfer) {
+        callback([]);
+        return;
+    }
+
+    if (dataTransfer.items && dataTransfer.items.length) {
+        var items = Array.prototype.slice.call(dataTransfer.items);
+        var files = [];
+        var pending = items.length;
+
+        if (pending === 0) {
+            callback(files);
+            return;
+        }
+
+        items.forEach(function(item) {
+            var entry = item && item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+
+            if (!entry) {
+                var file = item && item.getAsFile ? item.getAsFile() : null;
+                if (file) {
+                    files.push(file);
+                }
+                pending--;
+                if (pending === 0) {
+                    callback(files);
+                }
+                return;
+            }
+
+            if (entry.isFile) {
+                entry.file(function(file) {
+                    if (file) {
+                        if (!file.webkitRelativePath) {
+                            file.webkitRelativePath = (entry.fullPath || '/' + file.name).replace(/^\/+/, '');
+                        }
+                        files.push(file);
+                    }
+                    pending--;
+                    if (pending === 0) {
+                        callback(files);
+                    }
+                }, function() {
+                    pending--;
+                    if (pending === 0) {
+                        callback(files);
+                    }
+                });
+                return;
+            }
+
+            if (entry.isDirectory) {
+                readDirectoryEntry(entry, entry.name, files, function() {
+                    pending--;
+                    if (pending === 0) {
+                        callback(files);
+                    }
+                });
+                return;
+            }
+
+            pending--;
+            if (pending === 0) {
+                callback(files);
+            }
+        });
+        return;
+    }
+
+    if (dataTransfer.files && dataTransfer.files.length) {
+        callback(Array.prototype.slice.call(dataTransfer.files));
+        return;
+    }
+
+    callback([]);
 }
 
 function renderQueue() {
@@ -209,9 +390,11 @@ function renderQueue() {
     uploads.forEach(function(u) {
         var statusText = {wait: '等待中', running: '上传中', done: '完成', error: '失败'}[u.status] || u.status;
         var color = {wait: 'text-muted', running: 'text-info', done: 'text-success', error: 'text-danger'}[u.status] || '';
+        var pathInfo = u.webkitRelativePath ? '<br><small class="text-muted"><i class="fa fa-folder"></i> ' + $('<span>').text(u.webkitRelativePath).html() + '</small>' : '';
         var html = '<tr data-id="' + u.id + '">'
             + '<td class="file-name">' + $('<span>').text(u.name).html()
-            + (u.needChunk ? ' <small class="text-muted">(分片)</small>' : '') + '</td>'
+            + (u.needChunk ? ' <small class="text-muted">(分片)</small>' : '')
+            + pathInfo + '</td>'
             + '<td>' + formatSize(u.size) + '</td>'
             + '<td><div class="upload-progress"><div class="progress-bar" role="progressbar" style="width:' + u.progress + '%">' + u.progress + '%</div></div></td>'
             + '<td class="' + color + '">' + statusText + (u.errorMsg ? '<br><small>' + $('<span>').text(u.errorMsg).html() + '</small>' : '') + '</td>'
@@ -301,6 +484,9 @@ function uploadSingle(item) {
     var fd = new FormData();
     fd.append('file', item.file);
     fd.append('parent_id', PARENT_ID);
+    if (item.webkitRelativePath) {
+        fd.append('relative_path', item.webkitRelativePath);
+    }
     $.ajax({
         url: '{:url("index/file/upload")}',
         type: 'POST',
@@ -326,7 +512,11 @@ function uploadSingle(item) {
 function uploadChunked(item) {
     if (!item.upload_id) {
         // 第一步:初始化任务
-        $.post('{:url("index/file/chunkInit")}', {file_name: item.name, total_size: item.size, parent_id: PARENT_ID}, function(res) {
+        var initParams = {file_name: item.name, total_size: item.size, parent_id: PARENT_ID};
+        if (item.webkitRelativePath) {
+            initParams.relative_path = item.webkitRelativePath;
+        }
+        $.post('{:url("index/file/chunkInit")}', initParams, function(res) {
             if (res.code !== 200) {
                 item.errorMsg = res.msg || '初始化失败';
                 finishUpload(item, false);
@@ -420,6 +610,9 @@ function uploadOneChunk(item, idx, cb) {
     fd.append('total_chunks', item.total_chunks);
     fd.append('file_name', item.name);
     fd.append('total_size', item.size);
+    if (item.webkitRelativePath) {
+        fd.append('relative_path', item.webkitRelativePath);
+    }
     fd.append('file', blob, 'part');
 
     var attempt = 0;
@@ -448,13 +641,17 @@ function uploadOneChunk(item, idx, cb) {
 }
 
 function mergeChunked(item) {
-    $.post('{:url("index/file/chunkMerge")}', {
+    var mergeParams = {
         upload_id: item.upload_id,
         file_name: item.name,
         parent_id: PARENT_ID,
         total_chunks: item.total_chunks,
         total_size: item.size
-    }, function(res) {
+    };
+    if (item.webkitRelativePath) {
+        mergeParams.relative_path = item.webkitRelativePath;
+    }
+    $.post('{:url("index/file/chunkMerge")}', mergeParams, function(res) {
         if (res.code == 200) {
             setUpload(item.id, {progress: 100});
             finishUpload(item, true);
@@ -492,11 +689,17 @@ $(function() {
         $fileInput.trigger('click');
         setTimeout(function() { isTriggering = false; }, 100);
     });
+
+    $('#folderSelectLink').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        selectFolder();
+    });
     
     // 文件选择变化
     $fileInput.on('change', function(e) {
         e.stopPropagation();
-        addFiles(this.files);
+        addFiles(this.files, false);
         this.value = '';
     });
     
@@ -517,9 +720,28 @@ $(function() {
         e.preventDefault();
         e.stopPropagation();
         $(this).removeClass('dragover');
-        if (e.originalEvent.dataTransfer && e.originalEvent.dataTransfer.files.length) {
-            addFiles(e.originalEvent.dataTransfer.files);
+
+        var dt = e.originalEvent.dataTransfer;
+        if (!dt) {
+            return;
         }
+
+        collectDroppedFiles(dt, function(files) {
+            if (!files || !files.length) {
+                return;
+            }
+            var hasDirectory = false;
+            if (dt.items && dt.items.length) {
+                for (var i = 0; i < dt.items.length; i++) {
+                    var entry = dt.items[i] && dt.items[i].webkitGetAsEntry ? dt.items[i].webkitGetAsEntry() : null;
+                    if (entry && entry.isDirectory) {
+                        hasDirectory = true;
+                        break;
+                    }
+                }
+            }
+            addFiles(files, hasDirectory);
+        });
     });
     
     // 按钮事件

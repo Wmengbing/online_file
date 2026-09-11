@@ -144,8 +144,16 @@
         <div class="content-box">
             <div class="file-toolbar">
                 <h4 class="file-path">
-                    {if $parent}
-                    <a href="{:url('index/file/index')}">全部文件</a> / {$parent.name}
+                    {if $breadcrumbs}
+                    <a href="{:url('index/file/index')}">全部文件</a>
+                    {foreach $breadcrumbs as $crumb}
+                        /
+                        {if $crumb.is_current}
+                            {$crumb.name}
+                        {else}
+                            <a href="{:url('index/file/index', ['parent_id' => $crumb.id])}">{$crumb.name}</a>
+                        {/if}
+                    {/foreach}
                     {else}
                     <i class="fa fa-folder-open"></i> 全部文件
                     {/if}
