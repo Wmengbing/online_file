@@ -62,7 +62,7 @@ class File extends Base
             $query->where('name', 'like', '%' . $keyword . '%');
         }
         
-        $files = $query->order('type', 'asc')->order('created_at', 'desc')->select();
+        $files = $query->order('type', 'desc')->order('created_at', 'desc')->select();
         
         // 获取所有文件上传者的用户ID
         $user_ids = array_unique(array_column($files, 'user_id'));
@@ -1010,10 +1010,12 @@ class File extends Base
             Db::name('files')
                 ->where('id', $file_id)
                 ->update(['name' => $new_name]);
-            
+
             log_operation('file', 'rename', '重命名:' . $file['name'] . ' -> ' . $new_name);
-            
-            return $this->success('重命名成功');
+
+            // 跳转回文件所在目录
+            $redirect_url = url('index/file/index', ['parent_id' => $file['parent_id']]);
+            return $this->success('重命名成功', $redirect_url);
         }
         
         $file_id = input('file_id', 0);
@@ -1080,7 +1082,8 @@ class File extends Base
 
             log_operation('file', 'move', '移动文件:' . count($movable_ids) . '个');
 
-            return $this->success('移动成功');
+            // 跳转回文件列表
+            return $this->success('移动成功', url('index/file/index'));
         }
         
         $file_ids = input('file_ids/a', []);
