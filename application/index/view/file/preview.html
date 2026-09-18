@@ -188,7 +188,7 @@
                 <div class="preview-actions">
                     <a href="{$download_url}" class="btn btn-sm btn-primary"><i class="fa fa-download"></i> 下载</a>
                     <a href="{:url('index/file/detail', ['file_id' => $file.id])}" class="btn btn-sm btn-default"><i class="fa fa-info-circle"></i> 详情</a>
-                    <a href="{:url('index/file/index')}" class="btn btn-sm btn-default"><i class="fa fa-arrow-left"></i> 返回</a>
+                    <a href="javascript:;" id="backBtn" class="btn btn-sm btn-default"><i class="fa fa-arrow-left"></i> 返回</a>
                 </div>
             </div>
             <hr>
@@ -237,7 +237,7 @@
                         <div id="officeContent" class="office-content" style="display: none;"></div>
                         <div id="officeError" class="office-error" style="display: none;">
                             <i class="fa fa-exclamation-triangle" style="font-size: 48px; color: #f59e0b;"></i>
-                            <p style="margin-top: 16px; color: #64748b;">文档预览加载失败</p>
+                            <p id="officeErrorMsg" style="margin-top: 16px; color: #64748b;">文档预览加载失败</p>
                             <a href="{$download_url}" class="btn btn-primary" style="margin-top: 12px;"><i class="fa fa-download"></i> 下载文件</a>
                         </div>
                     </div>
@@ -250,9 +250,27 @@
                     var officeContent = document.getElementById('officeContent');
                     var officeError = document.getElementById('officeError');
                     
-                    function showError() {
+                    function showError(msg) {
                         officeLoading.style.display = 'none';
+                        if (msg) { document.getElementById('officeErrorMsg').textContent = msg; }
                         officeError.style.display = 'flex';
+                    }
+
+                    // 旧版 .doc(Word 97-2003)是 OLE2 复合文档,而 mammoth 只认 OOXML(docx)。
+                    // 这里只取前 8 字节判断真实格式,避免把整个文件下完才发现解析不了。
+                    function sniffLegacyDoc(url) {
+                        var OLE2 = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+                        return fetch(url, { credentials: 'include', headers: { Range: 'bytes=0-7' } })
+                            .then(function(r) { return r.arrayBuffer(); })
+                            .then(function(buf) {
+                                if (buf.byteLength < 8) return false;
+                                var b = new Uint8Array(buf, 0, 8);
+                                for (var i = 0; i < 8; i++) {
+                                    if (b[i] !== OLE2[i]) return false;
+                                }
+                                return true;
+                            })
+                            .catch(function() { return false; });   // 探测失败不拦截,交给正常流程报错
                     }
                     
                     function showContent(html) {
@@ -261,8 +279,16 @@
                         officeContent.style.display = 'block';
                     }
                     
-                    // 获取文件并解析（携带认证信息）
-                    fetch(rawUrl, { credentials: 'include' })
+                    // 旧版 .doc 预检:命中则直接给出准确提示,不再下载整个文件
+                    var precheck = (fileType === 'word') ? sniffLegacyDoc(rawUrl) : Promise.resolve(false);
+
+                    precheck.then(function(isLegacyDoc) {
+                        if (isLegacyDoc) {
+                            showError('该文件是 Word 97-2003 旧版格式(.doc),浏览器无法直接解析,请下载后用 Word 打开');
+                            return;
+                        }
+                        // 获取文件并解析（携带认证信息）
+                        fetch(rawUrl, { credentials: 'include' })
                         .then(function(response) {
                             if (!response.ok) throw new Error('Network error');
                             return response.arrayBuffer();
@@ -335,6 +361,7 @@
                             console.error('File load error:', err);
                             showError();
                         });
+                    });
                 })();
                 </script>
 
@@ -349,4 +376,22 @@
         </div>
     </div>
 </div>
+{/block}
+
+{block name="script"}
+<script>
+// 返回上一页;若没有站内来源(直接打开/新标签页打开)则退回该文件所在目录,而不是回首页
+(function() {
+    var btn = document.getElementById('backBtn');
+    if (!btn) { return; }
+    btn.addEventListener('click', function() {
+        var ref = document.referrer || '';
+        if (ref.indexOf(location.origin) === 0 && history.length > 1) {
+            history.back();
+        } else {
+            location.href = '{:url("index/file/index", ["parent_id" => $file.parent_id])}';
+        }
+    });
+})();
+</script>
 {/block}

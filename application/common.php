@@ -73,37 +73,82 @@ function format_file_size($bytes)
 
 /**
  * 获取文件MIME类型
+ *
+ * 只按扩展名判断,**不要**对文件内容调用 finfo/libmagic:
+ * PHP 7.4.3 内置的 libmagic 解析某些 OLE2 二进制 .doc 时会段错误(0xc0000005),
+ * 直接把 php-cgi 进程打死 → nginx 502 → error_page 落进 TP 报"模块不存在:error",
+ * 且段错误在 PHP 层无法 catch(2026-09-18 事故根因)。
+ *
+ * @param string $file_path 磁盘路径
+ * @param string $name      原始文件名,扩展名以此为准;上传临时文件路径没有扩展名时必须传
+ * @return string
  */
-function get_mime_type($file_path)
+function get_mime_type($file_path, $name = '')
 {
-    if (function_exists('finfo_open')) {
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mime = finfo_file($finfo, $file_path);
-        finfo_close($finfo);
-        return $mime;
-    }
-    
-    $extension = pathinfo($file_path, PATHINFO_EXTENSION);
-    $mime_types = [
-        'pdf' => 'application/pdf',
-        'doc' => 'application/msword',
+    static $mime_types = [
+        // 文档
+        'pdf'  => 'application/pdf',
+        'doc'  => 'application/msword',
         'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'xls' => 'application/vnd.ms-excel',
+        'xls'  => 'application/vnd.ms-excel',
         'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'ppt' => 'application/vnd.ms-powerpoint',
+        'ppt'  => 'application/vnd.ms-powerpoint',
         'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        'txt' => 'text/plain',
-        'jpg' => 'image/jpeg',
+        'rtf'  => 'application/rtf',
+        // 文本
+        'txt'      => 'text/plain',
+        'md'       => 'text/plain',
+        'markdown' => 'text/plain',
+        'log'      => 'text/plain',
+        'ini'      => 'text/plain',
+        'conf'     => 'text/plain',
+        'sh'       => 'text/plain',
+        'sql'      => 'text/plain',
+        'py'       => 'text/plain',
+        'yaml'     => 'text/plain',
+        'yml'      => 'text/plain',
+        'csv'      => 'text/csv',
+        'json'     => 'application/json',
+        'xml'      => 'text/xml',
+        'js'       => 'application/javascript',
+        'css'      => 'text/css',
+        'html'     => 'text/html',
+        'htm'      => 'text/html',
+        // 图片(svg/html 会被 StreamResponse 的内联黑名单强制下载)
+        'jpg'  => 'image/jpeg',
         'jpeg' => 'image/jpeg',
-        'png' => 'image/png',
-        'gif' => 'image/gif',
+        'png'  => 'image/png',
+        'gif'  => 'image/gif',
+        'webp' => 'image/webp',
+        'bmp'  => 'image/bmp',
+        'svg'  => 'image/svg+xml',
+        'ico'  => 'image/x-icon',
+        // 音视频
+        'mp4'  => 'video/mp4',
+        'webm' => 'video/webm',
+        'ogv'  => 'video/ogg',
+        'mov'  => 'video/quicktime',
+        'm4v'  => 'video/x-m4v',
+        'avi'  => 'video/x-msvideo',
+        'mkv'  => 'video/x-matroska',
+        'mp3'  => 'audio/mpeg',
+        'wav'  => 'audio/wav',
+        'ogg'  => 'audio/ogg',
+        'm4a'  => 'audio/mp4',
+        'aac'  => 'audio/aac',
+        'flac' => 'audio/flac',
+        'opus' => 'audio/opus',
+        // 压缩包
         'zip' => 'application/zip',
         'rar' => 'application/x-rar-compressed',
-        'mp4' => 'video/mp4',
-        'mp3' => 'audio/mpeg',
+        '7z'  => 'application/x-7z-compressed',
+        'tar' => 'application/x-tar',
+        'gz'  => 'application/gzip',
     ];
-    
-    return $mime_types[strtolower($extension)] ?? 'application/octet-stream';
+
+    $extension = strtolower(pathinfo($name !== '' ? $name : $file_path, PATHINFO_EXTENSION));
+
+    return $mime_types[$extension] ?? 'application/octet-stream';
 }
 
 /**

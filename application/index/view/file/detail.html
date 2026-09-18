@@ -99,7 +99,7 @@
                 <a href="{:url('index/file/rename', ['file_id' => $file.id])}" class="btn btn-info"><i class="fa fa-edit"></i> 重命名</a>
                 <button class="btn btn-danger" onclick="deleteFile({$file.id})"><i class="fa fa-trash"></i> 删除</button>
                 {/if}
-                <a href="{:url('index/file/index')}" class="btn btn-default">返回</a>
+                <a href="javascript:;" id="backBtn" class="btn btn-default">返回</a>
             </div>
         </div>
     </div>
@@ -111,5 +111,19 @@ function deleteFile(id) {
         ajaxPost('{:url("index/file/delete")}', {file_ids: [id]});
     });
 }
+
+// 返回上一页;若没有站内来源(直接打开/新标签页打开)则退回该文件所在目录,而不是回首页
+(function() {
+    var btn = document.getElementById('backBtn');
+    if (!btn) { return; }
+    btn.addEventListener('click', function() {
+        var ref = document.referrer || '';
+        if (ref.indexOf(location.origin) === 0 && history.length > 1) {
+            history.back();
+        } else {
+            location.href = '{:url("index/file/index", ["parent_id" => $file.parent_id])}';
+        }
+    });
+})();
 </script>
 {/block}
