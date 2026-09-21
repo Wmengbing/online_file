@@ -131,7 +131,7 @@
             </p>
             <hr>
             <ul class="nav nav-pills nav-stacked">
-                <li class="active"><a href="{:url('index/file/index')}"><i class="fa fa-folder"></i> 全部文件</a></li>
+                <li class="active"><a href="{:url('index/file/index', ['sort_by' => $sort_by, 'sort_order' => $sort_order])}"><i class="fa fa-folder"></i> 全部文件</a></li>
                 <li><a href="{:url('index/file/uploadTasks')}"><i class="fa fa-tasks"></i> 上传任务</a></li>
                 <li><a href="{:url('index/share/index')}"><i class="fa fa-share-alt"></i> 我的分享</a></li>
                 <li><a href="{:url('index/share/sharedWithMe')}"><i class="fa fa-users"></i> 共享给我</a></li>
@@ -145,13 +145,13 @@
             <div class="file-toolbar">
                 <h4 class="file-path">
                     {if $breadcrumbs}
-                    <a href="{:url('index/file/index')}">全部文件</a>
+                    <a href="{:url('index/file/index', ['sort_by' => $sort_by, 'sort_order' => $sort_order])}">全部文件</a>
                     {foreach $breadcrumbs as $crumb}
                         /
                         {if $crumb.is_current}
                             {$crumb.name}
                         {else}
-                            <a href="{:url('index/file/index', ['parent_id' => $crumb.id])}">{$crumb.name}</a>
+                            <a href="{:url('index/file/index', ['parent_id' => $crumb.id, 'sort_by' => $sort_by, 'sort_order' => $sort_order])}">{$crumb.name}</a>
                         {/if}
                     {/foreach}
                     {else}
@@ -161,6 +161,8 @@
                 <div class="file-actions">
                     <form class="file-search" method="get" action="{:url('index/file/index')}">
                         <input type="hidden" name="parent_id" value="{$parent_id}">
+                        <input type="hidden" name="sort_by" value="{$sort_by}">
+                        <input type="hidden" name="sort_order" value="{$sort_order}">
                         <div class="form-group" style="margin:0;">
                             <input type="text" class="form-control input-sm" name="keyword" placeholder="搜索文件..." value="{$keyword}">
                         </div>
@@ -188,10 +190,37 @@
                 <thead>
                     <tr>
                         <th width="40"><input type="checkbox" id="checkAll"></th>
-                        <th>名称</th>
+                        <th>
+                            <a href="javascript:void(0)" onclick="doSort('name')" style="color:#0f172a;text-decoration:none;">
+                                名称
+                                {if $sort_by == 'name'}
+                                    {if $sort_order == 'asc'}<i class="fa fa-sort-asc"></i>{else}<i class="fa fa-sort-desc"></i>{/if}
+                                {else}
+                                    <i class="fa fa-sort"></i>
+                                {/if}
+                            </a>
+                        </th>
                         <th width="100">上传者</th>
-                        <th width="100">大小</th>
-                        <th width="160">修改时间</th>
+                        <th width="100">
+                            <a href="javascript:void(0)" onclick="doSort('size')" style="color:#0f172a;text-decoration:none;">
+                                大小
+                                {if $sort_by == 'size'}
+                                    {if $sort_order == 'asc'}<i class="fa fa-sort-asc"></i>{else}<i class="fa fa-sort-desc"></i>{/if}
+                                {else}
+                                    <i class="fa fa-sort"></i>
+                                {/if}
+                            </a>
+                        </th>
+                        <th width="160">
+                            <a href="javascript:void(0)" onclick="doSort('created_at')" style="color:#0f172a;text-decoration:none;">
+                                修改时间
+                                {if $sort_by == 'created_at'}
+                                    {if $sort_order == 'asc'}<i class="fa fa-sort-asc"></i>{else}<i class="fa fa-sort-desc"></i>{/if}
+                                {else}
+                                    <i class="fa fa-sort"></i>
+                                {/if}
+                            </a>
+                        </th>
                         <th width="260">操作</th>
                     </tr>
                 </thead>
@@ -202,7 +231,7 @@
                         <td>
                             {if $file.type == 2}
                             <i class="fa fa-folder file-icon folder"></i>
-                            <a class="file-name" href="{:url('index/file/index')}?parent_id={$file.id}">{$file.name}</a>
+                            <a class="file-name" href="{:url('index/file/index')}?parent_id={$file.id}&sort_by={$sort_by}&sort_order={$sort_order}">{$file.name}</a>
                             {else}
                             <i class="fa fa-file file-icon file"></i>
                             <a class="file-name" href="{:url('index/file/detail', ['file_id' => $file.id])}">{$file.name}</a>
@@ -309,6 +338,16 @@ $(function() {
     });
     $('.file-check').on('change', updateBatchBar);
 });
+
+function doSort(field) {
+    var currentField = '{$sort_by}';
+    var currentOrder = '{$sort_order}';
+    var newOrder = (field === currentField && currentOrder === 'asc') ? 'desc' : 'asc';
+    var url = window.location.href.split('?')[0];
+    var params = {parent_id: '{$parent_id}', sort_by: field, sort_order: newOrder};
+    if ('{$keyword}') { params.keyword = '{$keyword}'; }
+    window.location.href = url + '?' + $.param(params);
+}
 
 function deleteFile(id) {
     layer.confirm('确定要删除吗？文件将移入回收站', {icon: 3}, function() {

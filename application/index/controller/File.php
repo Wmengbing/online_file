@@ -22,22 +22,24 @@ class File extends Base
         
         $parent_id = input('parent_id', 0);
         $keyword = input('keyword', '');
-        
+        $sort_by = input('sort_by', 'type');
+        $sort_order = input('sort_order', 'desc');
+
         $is_admin = $this->checkAdmin(false);
-        
+
         // 确保用户有个人文件夹
         $this->ensurePersonalFolder();
-        
+
         $query = Db::name('files')
             ->where('parent_id', $parent_id)
             ->where('status', 1);
         $this->applyAccessFilter($query);
-        
+
         // 非管理员：显示角色文件夹和个人文件夹
         if (!$is_admin) {
             $role_folder_ids = $this->getRoleFolderIds();
             $personal_folder_id = $this->getPersonalFolderId();
-            
+
             if ($parent_id == 0) {
                 // 根目录：只显示自己的角色文件夹 + 自己的个人文件夹
                 $allowed_ids = array_merge($role_folder_ids, [$personal_folder_id]);
@@ -57,12 +59,26 @@ class File extends Base
                 }
             }
         }
-        
+
         if ($keyword) {
             $query->where('name', 'like', '%' . $keyword . '%');
         }
-        
-        $files = $query->order('type', 'desc')->order('created_at', 'desc')->select();
+
+        // 排序逻辑
+        $allowed_sort_fields = ['name', 'size', 'type', 'created_at'];
+        if (!in_array($sort_by, $allowed_sort_fields)) {
+            $sort_by = 'type';
+        }
+        $sort_order = strtolower($sort_order) === 'asc' ? 'asc' : 'desc';
+
+        // 默认先按类型排序(文件夹在前)，再按指定字段排序
+        if ($sort_by === 'type') {
+            $query->order('type', $sort_order)->order('created_at', 'desc');
+        } else {
+            $query->order('type', 'desc')->order($sort_by, $sort_order);
+        }
+
+        $files = $query->select();
         
         // 获取所有文件上传者的用户ID
         $user_ids = array_unique(array_column($files, 'user_id'));
@@ -100,6 +116,8 @@ class File extends Base
         $this->assign('parent', $parent);
         $this->assign('breadcrumbs', $breadcrumbs);
         $this->assign('keyword', $keyword);
+        $this->assign('sort_by', $sort_by);
+        $this->assign('sort_order', $sort_order);
         $this->assign('max_upload_text', format_file_size((int)app_cfg('max_file_size', 0)));
         $this->assign('default_parent_id', $this->getDefaultUploadParentId());
         $this->assign('is_admin', $is_admin);
