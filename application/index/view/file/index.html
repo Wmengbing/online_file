@@ -3,356 +3,176 @@
 {block name="title"}我的文件 - 文件共享系统{/block}
 
 {block name="content"}
-<style>
-    .file-layout {
-        display: flex;
-        gap: 24px;
-        align-items: flex-start;
-    }
-    .file-sidebar {
-        width: 290px;
-        flex-shrink: 0;
-    }
-    .file-main {
-        flex: 1;
-        min-width: 0;
-    }
-    .storage-card {
-        background: rgba(255,255,255,0.96);
-        border: 1px solid rgba(226,232,240,0.9);
-        border-radius: 20px;
-        box-shadow: 0 18px 40px rgba(15,23,42,0.06);
-        padding: 18px 18px 14px;
-    }
-    .storage-card h4 {
-        margin: 0 0 12px;
-        font-weight: 700;
-        color: #0f172a;
-    }
-    .storage-card h4 .fa {
-        color: var(--primary);
-        margin-right: 8px;
-    }
-    .storage-card .storage-bar {
-        margin-bottom: 10px;
-    }
-    .storage-card .text-muted {
-        margin-top: 10px;
-        font-size: 13px;
-        line-height: 1.8;
-    }
-    .file-toolbar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 18px;
-    }
-    .file-path {
-        font-size: 16px;
-        margin: 0;
-        color: #0f172a;
-        font-weight: 700;
-        line-height: 1.5;
-    }
-    .file-path .fa {
-        color: var(--primary);
-        margin-right: 8px;
-    }
-    .file-path a {
-        color: #475569;
-    }
-    .file-actions {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 8px;
-        flex-wrap: wrap;
-    }
-    .file-search {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-    }
-    .file-search .form-control {
-        min-width: 180px;
-    }
-    .batch-bar {
-        display: none;
-        margin-bottom: 14px;
-        padding: 10px 12px;
-        border-radius: 12px;
-        background: #f8fbff;
-        border: 1px solid #e1edff;
-        color: #475569;
-    }
-    .batch-bar .text-muted {
-        margin-right: 10px;
-    }
-    .batch-bar .btn {
-        margin-right: 6px;
-    }
-    .empty-state {
-        text-align: center;
-        padding: 58px 30px 32px;
-    }
-    .empty-state .fa {
-        font-size: 64px;
-        color: rgba(148, 163, 184, 0.7);
-        margin-bottom: 12px;
-    }
-    @media (max-width: 991px) {
-        .file-layout {
-            display: block;
-        }
-        .file-sidebar {
-            width: 100%;
-            margin-bottom: 20px;
-        }
-        .file-toolbar {
-            display: block;
-        }
-        .file-actions {
-            justify-content: flex-start;
-            margin-top: 12px;
-        }
-    }
-</style>
-<div class="row file-layout">
-    <div class="col-md-3 file-sidebar">
-        <div class="storage-card sidebar">
-            <h4><i class="fa fa-hdd-o"></i> 存储空间</h4>
-            <div class="storage-bar">
-                <div class="progress progress-bar-striped active" style="width: {$user_info.storage_percent|default=0}%; background: {if $user_info.storage_percent > 90}#ef4444{elseif $user_info.storage_percent > 70}#f59e0b{else}#10b981{/if};"></div>
-            </div>
-            <p class="text-muted">
-                已使用: {$user_info.storage_used_text|default='0 B'} / {$user_info.storage_quota_text|default='0 B'}
-                ({$user_info.storage_percent|default=0}%)
-            </p>
-            <hr>
-            <ul class="nav nav-pills nav-stacked">
-                <li class="active"><a href="{:url('index/file/index', ['sort_by' => $sort_by, 'sort_order' => $sort_order])}"><i class="fa fa-folder"></i> 全部文件</a></li>
-                <li><a href="{:url('index/file/uploadTasks')}"><i class="fa fa-tasks"></i> 上传任务</a></li>
-                <li><a href="{:url('index/share/index')}"><i class="fa fa-share-alt"></i> 我的分享</a></li>
-                <li><a href="{:url('index/share/sharedWithMe')}"><i class="fa fa-users"></i> 共享给我</a></li>
-                <li><a href="{:url('index/recycle/index')}"><i class="fa fa-trash"></i> 回收站</a></li>
-            </ul>
-        </div>
-    </div>
-
-    <div class="col-md-9 file-main">
-        <div class="content-box">
-            <div class="file-toolbar">
-                <h4 class="file-path">
-                    {if $breadcrumbs}
-                    <a href="{:url('index/file/index', ['sort_by' => $sort_by, 'sort_order' => $sort_order])}">全部文件</a>
-                    {foreach $breadcrumbs as $crumb}
-                        /
-                        {if $crumb.is_current}
-                            {$crumb.name}
-                        {else}
-                            <a href="{:url('index/file/index', ['parent_id' => $crumb.id, 'sort_by' => $sort_by, 'sort_order' => $sort_order])}">{$crumb.name}</a>
-                        {/if}
-                    {/foreach}
+<section class="file-browser"
+         data-move-url="{:url('index/file/move')}"
+         data-copy-url="{:url('index/file/copy')}"
+         data-zip-url="{:url('index/file/downloadZip')}"
+         data-delete-url="{:url('index/file/delete')}"
+         data-source-parent="{$parent_id}"
+         data-sort-by="{$sort_by}"
+         data-sort-order="{$sort_order}">
+    <header class="page-heading">
+        <div class="page-heading-main">
+            <h1 class="page-title">我的文件</h1>
+            <ol class="file-breadcrumbs" aria-label="当前位置">
+                <li><a href="{:url('index/file/index', ['sort_by' => $sort_by, 'sort_order' => $sort_order])}"><i class="fa fa-home"></i> 全部文件</a></li>
+                {foreach $breadcrumbs as $crumb}
+                <li>
+                    {if $crumb.is_current}
+                    <span aria-current="page">{$crumb.name}</span>
                     {else}
-                    <i class="fa fa-folder-open"></i> 全部文件
+                    <a href="{:url('index/file/index', ['parent_id' => $crumb.id, 'sort_by' => $sort_by, 'sort_order' => $sort_order])}">{$crumb.name}</a>
                     {/if}
-                </h4>
-                <div class="file-actions">
-                    <form class="file-search" method="get" action="{:url('index/file/index')}">
-                        <input type="hidden" name="parent_id" value="{$parent_id}">
-                        <input type="hidden" name="sort_by" value="{$sort_by}">
-                        <input type="hidden" name="sort_order" value="{$sort_order}">
-                        <div class="form-group" style="margin:0;">
-                            <input type="text" class="form-control input-sm" name="keyword" placeholder="搜索文件..." value="{$keyword}">
-                        </div>
-                        <button type="submit" class="btn btn-sm btn-primary"><i class="fa fa-search"></i></button>
-                    </form>
-                    <a href="{:url('index/file/createFolder', ['parent_id' => $parent_id ?: $default_parent_id])}" class="btn btn-sm btn-success">
-                        <i class="fa fa-folder"></i> 新建目录
-                    </a>
-                    <a href="{:url('index/file/upload', ['parent_id' => $parent_id ?: $default_parent_id])}" class="btn btn-sm btn-info">
-                        <i class="fa fa-upload"></i> 上传文件
-                    </a>
+                </li>
+                {/foreach}
+            </ol>
+        </div>
+        <div class="page-heading-actions">
+            <a href="{:url('index/file/createFolder', ['parent_id' => $parent_id ?: $default_parent_id])}" class="btn btn-default"><i class="fa fa-folder-o"></i> 新建文件夹</a>
+            <a href="{:url('index/file/upload', ['parent_id' => $parent_id ?: $default_parent_id])}" class="btn btn-primary"><i class="fa fa-cloud-upload"></i> 上传文件</a>
+        </div>
+    </header>
+
+    <div class="file-workspace">
+        <div class="file-toolbar">
+            <form class="file-search" method="get" action="{:url('index/file/index')}" role="search">
+                <input type="hidden" name="parent_id" value="{$parent_id}">
+                <input type="hidden" name="sort_by" value="{$sort_by}">
+                <input type="hidden" name="sort_order" value="{$sort_order}">
+                <select name="search_scope" class="file-search-scope" aria-label="搜索范围">
+                    <option value="global" {if $search_scope == 'global'}selected{/if}>全部文件</option>
+                    <option value="current" {if $search_scope == 'current'}selected{/if}>当前目录</option>
+                </select>
+                <i class="fa fa-search file-search-icon" aria-hidden="true"></i>
+                <input type="search" class="form-control" name="keyword" placeholder="搜索文件名" value="{$keyword}" aria-label="搜索文件">
+                <button type="submit" class="file-search-submit" aria-label="搜索"><i class="fa fa-arrow-right"></i></button>
+            </form>
+            <div class="file-toolbar-right">
+                <span class="file-summary">共 {$total|default=0} 项</span>
+                <div class="file-view-toggle" role="group" aria-label="切换展示方式">
+                    <button type="button" data-file-view="list" aria-label="列表视图" aria-pressed="true"><i class="fa fa-list"></i></button>
+                    <button type="button" data-file-view="grid" aria-label="网格视图" aria-pressed="false"><i class="fa fa-th-large"></i></button>
                 </div>
             </div>
+        </div>
 
-            <div id="batchBar" class="batch-bar">
-                <span class="text-muted">已选 <b id="selCount">0</b> 项</span>
-                <button type="button" class="btn btn-xs btn-warning batch-manage-btn" onclick="batchMove()"><i class="fa fa-arrows"></i> 移动</button>
-                <button type="button" class="btn btn-xs btn-primary" onclick="batchZip()"><i class="fa fa-file-archive-o"></i> 打包下载</button>
-                <button type="button" class="btn btn-xs btn-danger batch-manage-btn" onclick="batchDelete()"><i class="fa fa-trash"></i> 删除</button>
-                <button type="button" class="btn btn-xs btn-default" onclick="clearSelect()">取消选择</button>
-            </div>
+        {if $keyword}
+        <div class="file-filter-note">
+            <i class="fa fa-search"></i>
+            正在{if $is_global_search}全部文件{else}当前目录{/if}中搜索“{$keyword}”，找到 {$total|default=0} 项
+            {if !$is_global_search}<a href="{:url('index/file/index', ['keyword' => $keyword, 'search_scope' => 'global'])}">改为全局搜索</a>{/if}
+        </div>
+        {/if}
 
-            {if $files}
-            <table class="table table-hover">
+        <div id="batchBar" class="batch-bar" aria-live="polite">
+            <span class="batch-count">已选择 <b id="selCount">0</b> 项</span>
+            <button type="button" class="btn btn-xs btn-warning batch-manage-btn" data-batch-action="move"><i class="fa fa-arrows"></i> 移动</button>
+            <button type="button" class="btn btn-xs btn-default" data-batch-action="copy"><i class="fa fa-copy"></i> 复制</button>
+            <button type="button" class="btn btn-xs btn-primary" data-batch-action="zip"><i class="fa fa-file-archive-o"></i> 打包下载</button>
+            <button type="button" class="btn btn-xs btn-danger batch-manage-btn" data-batch-action="delete"><i class="fa fa-trash-o"></i> 删除</button>
+            <span class="batch-spacer"></span>
+            <button type="button" class="btn btn-xs btn-default" data-clear-selection>取消选择</button>
+        </div>
+
+        {if $files}
+        <div class="file-table-wrap">
+            <table class="table table-hover file-table">
                 <thead>
                     <tr>
-                        <th width="40"><input type="checkbox" id="checkAll"></th>
-                        <th>
-                            <a href="javascript:void(0)" onclick="doSort('name')" style="color:#0f172a;text-decoration:none;">
-                                名称
-                                {if $sort_by == 'name'}
-                                    {if $sort_order == 'asc'}<i class="fa fa-sort-asc"></i>{else}<i class="fa fa-sort-desc"></i>{/if}
-                                {else}
-                                    <i class="fa fa-sort"></i>
-                                {/if}
-                            </a>
-                        </th>
-                        <th width="100">上传者</th>
-                        <th width="100">
-                            <a href="javascript:void(0)" onclick="doSort('size')" style="color:#0f172a;text-decoration:none;">
-                                大小
-                                {if $sort_by == 'size'}
-                                    {if $sort_order == 'asc'}<i class="fa fa-sort-asc"></i>{else}<i class="fa fa-sort-desc"></i>{/if}
-                                {else}
-                                    <i class="fa fa-sort"></i>
-                                {/if}
-                            </a>
-                        </th>
-                        <th width="160">
-                            <a href="javascript:void(0)" onclick="doSort('created_at')" style="color:#0f172a;text-decoration:none;">
-                                修改时间
-                                {if $sort_by == 'created_at'}
-                                    {if $sort_order == 'asc'}<i class="fa fa-sort-asc"></i>{else}<i class="fa fa-sort-desc"></i>{/if}
-                                {else}
-                                    <i class="fa fa-sort"></i>
-                                {/if}
-                            </a>
-                        </th>
-                        <th width="260">操作</th>
+                        <th class="file-check-cell"><input type="checkbox" id="checkAll" aria-label="全选"></th>
+                        <th><a href="#" class="file-sort-link" data-sort-field="name">名称
+                            {if $sort_by == 'name'}{if $sort_order == 'asc'}<i class="fa fa-sort-asc"></i>{else}<i class="fa fa-sort-desc"></i>{/if}{else}<i class="fa fa-sort"></i>{/if}
+                        </a></th>
+                        <th class="col-uploader">上传者</th>
+                        <th class="col-size"><a href="#" class="file-sort-link" data-sort-field="size">大小
+                            {if $sort_by == 'size'}{if $sort_order == 'asc'}<i class="fa fa-sort-asc"></i>{else}<i class="fa fa-sort-desc"></i>{/if}{else}<i class="fa fa-sort"></i>{/if}
+                        </a></th>
+                        <th class="col-time"><a href="#" class="file-sort-link" data-sort-field="created_at">修改时间
+                            {if $sort_by == 'created_at'}{if $sort_order == 'asc'}<i class="fa fa-sort-asc"></i>{else}<i class="fa fa-sort-desc"></i>{/if}{else}<i class="fa fa-sort"></i>{/if}
+                        </a></th>
+                        <th class="col-actions">操作</th>
                     </tr>
                 </thead>
                 <tbody>
                     {foreach $files as $file}
-                    <tr class="file-item" data-id="{$file.id}" data-type="{$file.type}" data-can-manage="{$file.can_manage ? 1 : 0}">
-                        <td><input type="checkbox" class="file-check" value="{$file.id}"></td>
-                        <td>
-                            {if $file.type == 2}
-                            <i class="fa fa-folder file-icon folder"></i>
-                            <a class="file-name" href="{:url('index/file/index')}?parent_id={$file.id}&sort_by={$sort_by}&sort_order={$sort_order}">{$file.name}</a>
-                            {else}
-                            <i class="fa fa-file file-icon file"></i>
-                            <a class="file-name" href="{:url('index/file/detail', ['file_id' => $file.id])}">{$file.name}</a>
-                            {/if}
+                    {if $file.type == 2}
+                    <tr class="file-item" data-id="{$file.id}" data-type="{$file.type}" data-extension="folder" data-can-manage="{$file.can_manage ? 1 : 0}" data-open-url="{:url('index/file/index', ['parent_id' => $file.id])}">
+                    {else}
+                    <tr class="file-item" data-id="{$file.id}" data-type="{$file.type}" data-extension="{$file.extension|default='file'}" data-can-manage="{$file.can_manage ? 1 : 0}" data-open-url="{:url('index/file/detail', ['file_id' => $file.id])}">
+                    {/if}
+                        <td class="file-check-cell"><input type="checkbox" class="file-check" value="{$file.id}" aria-label="选择 {$file.name}"></td>
+                        <td class="file-name-cell">
+                            <div class="file-primary">
+                                {if $file.type == 2}
+                                <span class="file-type-icon folder"><i class="fa fa-folder"></i></span>
+                                <div class="file-primary-text">
+                                    <a class="file-name" href="{:url('index/file/index', ['parent_id' => $file.id, 'sort_by' => $sort_by, 'sort_order' => $sort_order])}">{$file.name}</a>
+                                    <span class="file-subline">文件夹 · {$file.created_at}</span>
+                                    <span class="file-extension">文件夹</span>
+                                    {if $is_global_search}<a class="file-location" href="{$file.location_url}"><i class="fa fa-map-marker"></i> {$file.location_text}</a>{/if}
+                                </div>
+                                {else}
+                                <span class="file-type-icon"><i class="fa fa-file-o"></i></span>
+                                <div class="file-primary-text">
+                                    <a class="file-name" href="{:url('index/file/detail', ['file_id' => $file.id])}">{$file.name}</a>
+                                    <span class="file-subline">{$file.size_text|default='-'} · {$file.created_at}</span>
+                                    <span class="file-extension">{$file.extension|default='FILE'}</span>
+                                    {if $is_global_search}<a class="file-location" href="{$file.location_url}"><i class="fa fa-map-marker"></i> {$file.location_text}</a>{/if}
+                                </div>
+                                {/if}
+                            </div>
                         </td>
-                        <td><span class="text-muted">{$file.uploader_username|default='未知用户'}</span></td>
-                        <td>{$file.size_text|default='-'}</td>
-                        <td>{$file.created_at}</td>
-                        <td>
+                        <td class="col-uploader"><span class="text-muted">{$file.uploader_username|default='未知用户'}</span></td>
+                        <td class="col-size">{$file.size_text|default='-'}</td>
+                        <td class="col-time">{$file.created_at}</td>
+                        <td class="row-actions col-actions">
                             {if $file.type == 1}
-                            {if is_previewable_extension($file.extension)}
-                            <a href="{:url('index/file/preview', ['file_id' => $file.id])}" class="btn btn-xs btn-success btn-action" title="预览"><i class="fa fa-eye"></i></a>
-                            {/if}
-                            <a href="{:url('index/file/download', ['file_id' => $file.id])}" class="btn btn-xs btn-primary btn-action" title="下载"><i class="fa fa-download"></i></a>
-                            <a href="{:url('index/share/create', ['file_id' => $file.id])}" class="btn btn-xs btn-warning btn-action" title="分享"><i class="fa fa-share"></i></a>
+                                <a href="{:url('index/file/preview', ['file_id' => $file.id])}" class="btn btn-xs btn-success" title="预览" aria-label="预览 {$file.name}"><i class="fa fa-eye"></i></a>
+                                <a href="{:url('index/file/download', ['file_id' => $file.id])}" class="btn btn-xs btn-primary" title="下载" aria-label="下载 {$file.name}"><i class="fa fa-download"></i></a>
                             {else}
-                            <a href="{:url('index/file/detail', ['file_id' => $file.id])}" class="btn btn-xs btn-default btn-action" title="详情"><i class="fa fa-info-circle"></i></a>
+                                <a href="{:url('index/file/index', ['parent_id' => $file.id])}" class="btn btn-xs btn-primary" title="打开" aria-label="打开 {$file.name}"><i class="fa fa-folder-open-o"></i></a>
                             {/if}
-                            {if $file.can_manage}
-                            <a href="{:url('index/file/rename', ['file_id' => $file.id])}" class="btn btn-xs btn-info btn-action" title="重命名"><i class="fa fa-edit"></i></a>
-                            <button class="btn btn-xs btn-danger btn-action" title="删除" onclick="deleteFile({$file.id})"><i class="fa fa-trash"></i></button>
-                            {/if}
+                            <div class="btn-group">
+                                <button type="button" class="btn btn-xs btn-default dropdown-toggle" data-toggle="dropdown" title="更多操作" aria-label="更多操作"><i class="fa fa-ellipsis-h"></i></button>
+                                <ul class="dropdown-menu">
+                                    <li><a href="{:url('index/file/detail', ['file_id' => $file.id])}"><i class="fa fa-info-circle"></i> 查看详情</a></li>
+                                    <li><a href="{:url('index/file/copy')}?file_ids[]={$file.id}&source_parent_id={$parent_id}"><i class="fa fa-copy"></i> 复制到</a></li>
+                                    {if $file.can_manage}
+                                    <li><a href="{:url('index/file/move')}?file_ids[]={$file.id}&source_parent_id={$parent_id}"><i class="fa fa-arrows"></i> 移动到</a></li>
+                                    <li><a href="{:url('index/share/create', ['file_id' => $file.id])}"><i class="fa fa-link"></i> 创建链接分享</a></li>
+                                    <li><a href="{:url('index/share/internalShare', ['file_id' => $file.id])}"><i class="fa fa-users"></i> 共享给同事</a></li>
+                                    <li><a href="{:url('index/file/rename', ['file_id' => $file.id])}"><i class="fa fa-pencil"></i> 重命名</a></li>
+                                    <li class="divider"></li>
+                                    <li><a href="#" class="text-danger" data-delete-id="{$file.id}"><i class="fa fa-trash-o"></i> 移入回收站</a></li>
+                                    {/if}
+                                </ul>
+                            </div>
                         </td>
                     </tr>
                     {/foreach}
                 </tbody>
             </table>
-            {else}
-            <div class="empty-state">
-                <i class="fa fa-folder-open"></i>
-                <p class="text-muted">暂无文件</p>
-            </div>
-            {/if}
         </div>
+
+        {if $total_pages > 1}
+        <nav class="file-pagination" aria-label="文件分页">
+            {if $page > 1}
+            <a class="btn btn-sm btn-default" href="{:url('index/file/index', ['parent_id' => $parent_id, 'keyword' => $keyword, 'search_scope' => $search_scope, 'sort_by' => $sort_by, 'sort_order' => $sort_order, 'page' => $page - 1])}"><i class="fa fa-angle-left"></i> 上一页</a>
+            {/if}
+            <span class="page-indicator">第 {$page} / {$total_pages} 页</span>
+            {if $page < $total_pages}
+            <a class="btn btn-sm btn-default" href="{:url('index/file/index', ['parent_id' => $parent_id, 'keyword' => $keyword, 'search_scope' => $search_scope, 'sort_by' => $sort_by, 'sort_order' => $sort_order, 'page' => $page + 1])}">下一页 <i class="fa fa-angle-right"></i></a>
+            {/if}
+        </nav>
+        {/if}
+        {else}
+        <div class="file-empty">
+            <span class="file-empty-icon"><i class="fa fa-folder-open-o"></i></span>
+            <h3>{if $keyword}没有找到相关文件{else}这里还是空的{/if}</h3>
+            <p>{if $keyword}换个关键词试试，或者返回查看全部文件{else}上传文件或新建文件夹，开始整理你的资料{/if}</p>
+            {if !$keyword}<a href="{:url('index/file/upload', ['parent_id' => $parent_id ?: $default_parent_id])}" class="btn btn-primary"><i class="fa fa-cloud-upload"></i> 上传第一个文件</a>{/if}
+        </div>
+        {/if}
     </div>
-</div>
-
-{/block}
-
-{block name="script"}
-<script>
-function selectedIds() {
-    var ids = [];
-    $('.file-check:checked').each(function() { ids.push($(this).val()); });
-    return ids;
-}
-
-function selectedCanManage() {
-    // 检查选中的文件是否都可以被当前用户管理
-    var allCanManage = true;
-    $('.file-check:checked').each(function() {
-        var row = $(this).closest('tr');
-        if (row.data('can-manage') != 1) {
-            allCanManage = false;
-            return false; // break
-        }
-    });
-    return allCanManage;
-}
-
-function updateBatchBar() {
-    var n = selectedIds().length;
-    $('#selCount').text(n);
-    $('#batchBar').toggle(n > 0);
-    
-    // 根据权限控制批量操作按钮的显示
-    if (n > 0) {
-        var canManage = selectedCanManage();
-        $('.batch-manage-btn').toggle(canManage);
-    }
-}
-
-function clearSelect() {
-    $('.file-check').prop('checked', false);
-    updateBatchBar();
-}
-
-function batchMove() {
-    var ids = selectedIds();
-    if (!ids.length) { layer.msg('请先勾选文件', {icon: 0}); return; }
-    if (!selectedCanManage()) { layer.msg('选中的文件中包含无权操作的文件', {icon: 0}); return; }
-    location.href = '{:url("index/file/move")}?' + ids.map(function(i) { return 'file_ids[]=' + i; }).join('&');
-}
-
-function batchZip() {
-    var ids = selectedIds();
-    if (!ids.length) { layer.msg('请先勾选文件', {icon: 0}); return; }
-    location.href = '{:url("index/file/downloadZip")}?' + ids.map(function(i) { return 'file_ids[]=' + i; }).join('&');
-}
-
-function batchDelete() {
-    var ids = selectedIds();
-    if (!ids.length) { layer.msg('请先勾选文件', {icon: 0}); return; }
-    if (!selectedCanManage()) { layer.msg('选中的文件中包含无权操作的文件', {icon: 0}); return; }
-    layer.confirm('确定要删除选中的 ' + ids.length + ' 项吗？文件将移入回收站', {icon: 3}, function() {
-        ajaxPost('{:url("index/file/delete")}', {file_ids: ids});
-    });
-}
-
-$(function() {
-    $('#checkAll').on('change', function() {
-        $('.file-check').prop('checked', this.checked);
-        updateBatchBar();
-    });
-    $('.file-check').on('change', updateBatchBar);
-});
-
-function doSort(field) {
-    var currentField = '{$sort_by}';
-    var currentOrder = '{$sort_order}';
-    var newOrder = (field === currentField && currentOrder === 'asc') ? 'desc' : 'asc';
-    var url = window.location.href.split('?')[0];
-    var params = {parent_id: '{$parent_id}', sort_by: field, sort_order: newOrder};
-    if ('{$keyword}') { params.keyword = '{$keyword}'; }
-    window.location.href = url + '?' + $.param(params);
-}
-
-function deleteFile(id) {
-    layer.confirm('确定要删除吗？文件将移入回收站', {icon: 3}, function() {
-        ajaxPost('{:url("index/file/delete")}', {file_ids: [id]});
-    });
-}
-</script>
+</section>
 {/block}

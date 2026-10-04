@@ -30,6 +30,10 @@ class Auth extends Base
                 log_operation('auth', 'login', '登录失败:用户名或密码错误', 0);
                 return $this->error('用户名或密码错误');
             }
+
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                session_regenerate_id(true);
+            }
             
             Jwt::login($user);
             
@@ -109,6 +113,7 @@ class Auth extends Base
 
     public function logout()
     {
+        $this->requirePost();
         Jwt::logout();
         return $this->success('退出成功', 'index/auth/login');
     }
@@ -146,7 +151,9 @@ class Auth extends Base
         
         $user['storage_quota_text'] = format_file_size($user['storage_quota']);
         $user['storage_used_text'] = format_file_size($user['storage_used']);
-        $user['storage_percent'] = round(($user['storage_used'] / $user['storage_quota']) * 100, 2);
+        $user['storage_percent'] = $user['storage_quota'] > 0
+            ? round(($user['storage_used'] / $user['storage_quota']) * 100, 2)
+            : 0;
         
         $this->assign('user', $user);
         return $this->fetch();

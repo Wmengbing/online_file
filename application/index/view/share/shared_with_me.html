@@ -33,7 +33,10 @@
                         </td>
                         <td>{$share.created_at}</td>
                         <td>
-                            {if $share.file_type == 1}
+                            {if $share.file_type == 2}
+                            <a href="{:url('index/file/index', ['parent_id' => $share.file_id])}" class="btn btn-xs btn-primary"><i class="fa fa-folder-open"></i> 打开</a>
+                            {else}
+                            <a href="{:url('index/file/preview', ['file_id' => $share.file_id])}" class="btn btn-xs btn-success"><i class="fa fa-eye"></i> 预览</a>
                             <a href="{:url('index/file/download', ['file_id' => $share.file_id])}" class="btn btn-xs btn-primary"><i class="fa fa-download"></i> 下载</a>
                             {/if}
                         </td>

@@ -8,7 +8,8 @@
 - **目录文件 CRUD**: 创建、读取、更新、删除文件和目录
 - **分片上传**: 多文件/拖拽上传,超过 5MB 自动分片,支持断点续传与重试、秒传去重
 - **断点下载**: HTTP Range 断点续传;多选/整目录打包 zip 下载
-- **在线预览**: 图片、文本、PDF、音视频浏览器内直接预览(支持 Range 拖动播放)
+- **全局搜索**: 默认检索全部可访问文件、角色目录和内部共享目录，也可限制为当前目录
+- **在线预览**: 本地 PDF.js、图片/文本/音视频预览；Office 可通过 LibreOffice 转 PDF，并提供浏览器解析降级
 - **分享链接**: 支持密码保护(提取码)、有效期设置
 - **内部共享**: 用户间文件共享，支持权限控制
 - **回收站**: 30天自动清理，整棵目录树还原/彻底删除(物理文件引用计数安全)
@@ -21,74 +22,19 @@
 - PHP >= 7.0
 - MySQL >= 5.6
 - Apache/Nginx
+- LibreOffice（可选，用于 `.doc/.xls/.ppt` 等 Office 文件转 PDF 在线预览）
 
 ## 安装部署
 
-### 1. 配置数据库
+生产环境统一使用宝塔 Linux 原子发布方案，不再手工覆盖线上目录。完整步骤见 [宝塔 Linux 全新部署、更新与回滚](DEPLOYMENT.md)。
 
-编辑 `config/database.php`，配置数据库连接信息(本机 phpStudy 默认 root/root)：
+部署工具包括：
 
-```php
-'database' => 'file',
-'username' => 'root',
-'password' => 'root',
-```
+- `ops/init-database.sh`：导入纯净结构并交互创建首个管理员。
+- `ops/deploy.sh <版本标签>`：备份数据库、安装依赖、检查并原子发布。
+- `ops/rollback.sh`：一键回滚到上一个成功版本。
 
-### 2. 导入数据库
-
-```bash
-mysql -u root -p your_database_name < database/schema.sql
-```
-
-### 3. 配置Web服务器
-
-#### Nginx 配置示例
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-    root /path/to/online_file/public;
-    index index.php;
-
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
-    }
-
-    location ~ \.php$ {
-        fastcgi_pass 127.0.0.1:9000;
-        fastcgi_index index.php;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        include fastcgi_params;
-    }
-
-    location ~ /\.ht {
-        deny all;
-    }
-}
-```
-
-#### Apache 配置
-
-确保开启了 `mod_rewrite`，项目已包含 `.htaccess` 文件。
-
-### 4. 设置目录权限
-
-```bash
-chmod -R 755 runtime/
-chmod -R 755 public/uploads/
-```
-
-### 5. 启动异步任务工作器(可选)
-
-```bash
-php think task:worker
-```
-
-## 默认账号
-
-- 用户名: `admin`
-- 密码: `admin123`
+生产环境没有公开的默认管理员密码，首次初始化时必须自行设置至少 12 位密码。
 
 ## 目录结构
 
@@ -121,12 +67,17 @@ online_file/
 │   ├── database.php             # 数据库配置
 │   ├── app.php                  # 应用配置
 │   └── file.php                 # 文件上传配置
-├── database/
-│   └── schema.sql               # 数据库结构
+├── ops/
+│   ├── schema.sql               # 纯净生产数据库结构
+│   ├── init-database.sh         # 首次数据库初始化
+│   ├── deploy.sh                # 原子发布
+│   ├── rollback.sh              # 一键回滚
+│   └── supervisor-worker.conf.example # 可选任务进程配置
 ├── public/
-│   └── uploads/                 # 上传文件目录
+│   └── static/                  # 前端静态资源
 ├── route/
 │   └── route.php                # 路由配置
+├── uploads/                     # 上传文件目录（不进入 Git）
 └── README.md                    # 说明文档
 ```
 
@@ -142,6 +93,7 @@ online_file/
 | `/file` | 文件列表 |
 | `/file/createFolder` | 新建目录 |
 | `/file/upload` | 上传文件 |
+| `/file/move` `/file/copy` | 批量移动或复制文件/目录树 |
 | `/file/detail` | 文件详情 |
 | `/file/preview` | 在线预览(图片/文本/PDF/音视频) |
 | `/file/downloadZip` | 多选/目录打包下载 |

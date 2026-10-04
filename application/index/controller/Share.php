@@ -43,11 +43,10 @@ class Share extends Base
             
             $file = Db::name('files')
                 ->where('id', $file_id)
-                ->where('user_id', $this->user_id)
                 ->where('status', 1)
                 ->find();
                 
-            if (!$file) {
+            if (!$file || !$this->canManageFile($file)) {
                 return $this->error('文件不存在');
             }
             
@@ -90,6 +89,7 @@ class Share extends Base
 
     public function delete()
     {
+        $this->requirePost();
         $this->checkLogin();
         
         $share_id = input('share_id', 0);
@@ -106,6 +106,7 @@ class Share extends Base
 
     public function toggleStatus()
     {
+        $this->requirePost();
         $this->checkLogin();
         
         $share_id = input('share_id', 0);
@@ -131,7 +132,7 @@ class Share extends Base
     public function view()
     {
         $token = input('token', '');
-        $password = input('password', '');
+        $password = $this->request->isPost() ? (string)input('password', '') : '';
         
         if (!$token) {
             $this->error('分享链接无效');
@@ -159,9 +160,29 @@ class Share extends Base
             $this->error('分享已过期');
         }
         
-        if ($share['password'] && $share['password'] !== $password) {
+        $access_key = $this->getShareAccessSessionKey($share['id']);
+        $has_access = !$share['password'] || session($access_key) === true;
+
+        if ($share['password'] && !$has_access) {
             if ($this->request->isPost()) {
-                return json(['code' => 403, 'msg' => '提取码错误']);
+                $attempt_key = $access_key . '_attempts';
+                $attempts = session($attempt_key) ?: ['count' => 0, 'reset_at' => time() + 600];
+                if ((int)$attempts['reset_at'] <= time()) {
+                    $attempts = ['count' => 0, 'reset_at' => time() + 600];
+                }
+                if ((int)$attempts['count'] >= 10) {
+                    return json(['code' => 429, 'msg' => '尝试次数过多，请10分钟后再试']);
+                }
+
+                if (!hash_equals((string)$share['password'], $password)) {
+                    $attempts['count']++;
+                    session($attempt_key, $attempts);
+                    return json(['code' => 403, 'msg' => '提取码错误']);
+                }
+
+                session($access_key, true);
+                session($attempt_key, null);
+                return $this->success('提取码正确', url('index/share/view', ['token' => $token]));
             }
             $this->assign('need_password', true);
             $this->assign('token', $token);
@@ -184,7 +205,6 @@ class Share extends Base
     public function download()
     {
         $token = input('token', '');
-        $password = input('password', '');
         
         $share = Db::name('file_shares')
             ->alias('s')
@@ -200,8 +220,13 @@ class Share extends Base
         if ($share['status'] != 1) {
             $this->error('分享不可用');
         }
-        
-        if ($share['password'] && $share['password'] !== $password) {
+
+        if ($share['expire_time'] && strtotime($share['expire_time']) < time()) {
+            Db::name('file_shares')->where('id', $share['id'])->update(['status' => 2]);
+            $this->error('分享已过期');
+        }
+
+        if ($share['password'] && session($this->getShareAccessSessionKey($share['id'])) !== true) {
             $this->error('提取码错误');
         }
         
@@ -231,37 +256,47 @@ class Share extends Base
                 return $this->error('请选择要共享的用户');
             }
             
+            if (!in_array((int)$permission, [1, 2], true)) {
+                return $this->error('共享权限无效');
+            }
+
             $file = Db::name('files')
                 ->where('id', $file_id)
-                ->where('user_id', $this->user_id)
                 ->where('status', 1)
                 ->find();
                 
-            if (!$file) {
+            if (!$file || !$this->canManageFile($file)) {
                 return $this->error('文件不存在');
             }
-            
-            $insert_data = [];
+
+            $valid_user_ids = Db::name('users')
+                ->where('id', 'in', array_map('intval', $user_ids))
+                ->where('status', 1)
+                ->where('deleted_at', null)
+                ->column('id');
+            $valid_user_ids = array_map('intval', (array)$valid_user_ids);
+
             foreach ($user_ids as $user_id) {
-                if ($user_id == $this->user_id) continue;
+                $user_id = (int)$user_id;
+                if ($user_id === (int)$this->user_id || !in_array($user_id, $valid_user_ids)) continue;
                 
                 $exists = Db::name('file_internal_shares')
                     ->where('file_id', $file_id)
                     ->where('shared_user_id', $user_id)
                     ->find();
                     
-                if ($exists) continue;
-                
-                $insert_data[] = [
-                    'owner_id'       => $this->user_id,
-                    'file_id'        => $file_id,
-                    'shared_user_id' => $user_id,
-                    'permission'     => $permission,
-                ];
-            }
-            
-            if (!empty($insert_data)) {
-                Db::name('file_internal_shares')->insertAll($insert_data);
+                if ($exists) {
+                    Db::name('file_internal_shares')
+                        ->where('id', $exists['id'])
+                        ->update(['permission' => (int)$permission]);
+                } else {
+                    Db::name('file_internal_shares')->insert([
+                        'owner_id'       => $this->user_id,
+                        'file_id'        => $file_id,
+                        'shared_user_id' => $user_id,
+                        'permission'     => (int)$permission,
+                    ]);
+                }
             }
             
             log_operation('share', 'internal_share', '内部共享文件:' . $file['name']);
@@ -291,7 +326,8 @@ class Share extends Base
             ->join('files f', 'f.id = s.file_id')
             ->join('users u', 'u.id = s.owner_id')
             ->where('s.shared_user_id', $this->user_id)
-            ->field('s.*, f.name as file_name, f.type as file_type, f.size as file_size, f.mime_type, u.username as owner_name')
+            ->where('f.status', 1)
+            ->field('s.*, f.name as file_name, f.type as file_type, f.size as file_size, f.mime_type, f.extension, u.username as owner_name')
             ->order('s.created_at', 'desc')
             ->select();
         
@@ -303,5 +339,10 @@ class Share extends Base
         
         $this->assign('shares', $shares);
         return $this->fetch();
+    }
+
+    private function getShareAccessSessionKey($share_id)
+    {
+        return 'share_access_' . (int)$share_id;
     }
 }

@@ -1,2 +1,6 @@
 *
 !.gitignore
+!css/
+!css/app.css
+!js/
+!js/app.js

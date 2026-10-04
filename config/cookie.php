@@ -22,9 +22,11 @@ return [
     // cookie 有效域名
     'domain'    => '',
     //  cookie 启用安全传输
-    'secure'    => false,
+    'secure'    => env('COOKIE_SECURE', false),
     // httponly设置
-    'httponly'  => '',
+    'httponly'  => true,
+    // 降低跨站请求携带会话 Cookie 的风险；外部分享仍可正常打开
+    'samesite'  => 'Lax',
     // 是否使用 setcookie
     'setcookie' => true,
 ];

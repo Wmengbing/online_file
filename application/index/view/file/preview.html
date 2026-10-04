@@ -1,397 +1,337 @@
 {extend name="common/layout" /}
 
-{block name="title"}预览: {$file.name} - 文件共享系统{/block}
+{block name="title"}预览：{$file.name} - 文件共享系统{/block}
 
 {block name="head"}
-{if $p_type == 'excel'}
+{if $preview_mode == 'browser-office' && $original_preview_type == 'excel'}
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 {/if}
-{if $p_type == 'word'}
+{if $preview_mode == 'browser-office' && $original_preview_type == 'word'}
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
 {/if}
 {/block}
 
 {block name="content"}
-<style>
-    .preview-shell {
-        display: flex;
-        justify-content: center;
-    }
-    .preview-card {
-        width: 100%;
-        max-width: 1100px;
-        background: rgba(255,255,255,0.96);
-        border: 1px solid rgba(226,232,240,0.95);
-        border-radius: 22px;
-        box-shadow: 0 24px 50px rgba(15,23,42,0.08);
-        padding: 22px 22px 18px;
-    }
-    .preview-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 14px;
-    }
-    .preview-title {
-        margin: 0;
-        font-weight: 700;
-        color: #0f172a;
-    }
-    .preview-title .fa {
-        color: var(--primary);
-        margin-right: 8px;
-    }
-    .preview-meta {
-        color: #64748b;
-        display: block;
-        margin-top: 4px;
-    }
-    .preview-actions {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: flex-end;
-        gap: 8px;
-    }
-    .preview-body {
-        margin-top: 16px;
-    }
-    .preview-content-box {
-        border: 1px solid #e2e8f0;
-        background: #f8fafc;
-        border-radius: 18px;
-        overflow: hidden;
-        box-shadow: inset 0 1px 0 rgba(255,255,255,0.4);
-    }
-    .preview-image {
-        display: block;
-        max-width: 100%;
-        max-height: 70vh;
-        margin: 0 auto;
-        border-radius: 14px;
-    }
-    .preview-video, .preview-audio {
-        display: block;
-        max-width: 100%;
-        max-height: 70vh;
-        margin: 0 auto;
-    }
-    .preview-pdf {
-        height: 72vh;
-        border: 1px solid #dfeaf7;
-        border-radius: 16px;
-        overflow: hidden;
-        background: #f8fafc;
-    }
-    .preview-pdf iframe {
-        width: 100%;
-        height: 100%;
-        border: none;
-    }
-    .preview-text pre {
-        max-height: 65vh;
-        overflow: auto;
-        background: #f8fafc;
-        padding: 18px;
-        word-break: break-all;
-        white-space: pre-wrap;
-        border-radius: 14px;
-        border: 1px solid #e2e8f0;
-        margin: 0;
-        color: #1f2937;
-    }
-    .preview-empty {
-        text-align: center;
-        padding: 52px 20px;
-    }
-    .preview-empty .fa {
-        font-size: 64px;
-        color: rgba(148,163,184,0.8);
-        margin-bottom: 12px;
-    }
-    .preview-office {
-        width: 100%;
-    }
-    .office-preview-container {
-        position: relative;
-        width: 100%;
-        height: 72vh;
-        background: #f8fafc;
-        border-radius: 16px;
-        overflow: hidden;
-        border: 1px solid #dfeaf7;
-    }
-    .office-iframe {
-        width: 100%;
-        height: 100%;
-        border: none;
-        display: none;
-    }
-    .office-loading, .office-error {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        background: #f8fafc;
-    }
-    .office-content {
-        width: 100%;
-        height: 100%;
-        overflow: auto;
-        background: #fff;
-    }
-    .office-content table {
-        width: 100%;
-        border-collapse: collapse;
-        margin: 10px 0;
-    }
-    .office-content table th,
-    .office-content table td {
-        border: 1px solid #e2e8f0;
-        padding: 8px 12px;
-        text-align: left;
-    }
-    .office-content table th {
-        background: #f1f5f9;
-        font-weight: 600;
-        color: #1f2937;
-    }
-    .office-content table tr:nth-child(even) {
-        background: #f8fafc;
-    }
-    .office-content table tr:hover {
-        background: #e0f2fe;
-    }
-    @media (max-width: 767px) {
-        .preview-header {
-            display: block;
-        }
-        .preview-actions {
-            justify-content: flex-start;
-            margin-top: 12px;
-        }
-    }
-</style>
-<div class="row preview-shell">
-    <div class="col-md-10 col-md-offset-1">
-        <div class="preview-card">
-            <div class="preview-header">
-                <div>
-                    <h4 class="preview-title"><i class="fa fa-eye"></i> {$file.name}</h4>
-                    <small class="preview-meta">{$file.size_text} · {if $file.mime_type}{$file.mime_type}{else}-{/if}</small>
-                </div>
-                <div class="preview-actions">
-                    <a href="{$download_url}" class="btn btn-sm btn-primary"><i class="fa fa-download"></i> 下载</a>
-                    <a href="{:url('index/file/detail', ['file_id' => $file.id])}" class="btn btn-sm btn-default"><i class="fa fa-info-circle"></i> 详情</a>
-                    <a href="javascript:;" id="backBtn" class="btn btn-sm btn-default"><i class="fa fa-arrow-left"></i> 返回</a>
-                </div>
-            </div>
-            <hr>
-
-            <div class="preview-body">
-                {if $p_type == 'image'}
-                <div class="text-center preview-content-box">
-                    <img class="preview-image" src="{$raw_url}" alt="{$file.name}" onerror="this.outerHTML='<p class=\'text-danger text-center\'>图片加载失败</p>'">
-                </div>
-
-                {elseif $p_type == 'video'}
-                <div class="text-center preview-content-box">
-                    <video class="preview-video" src="{$raw_url}" controls preload="metadata">
-                        您的浏览器不支持视频播放,请<a href="{$download_url}">下载</a>后观看
-                    </video>
-                </div>
-
-                {elseif $p_type == 'audio'}
-                <div class="text-center preview-content-box" style="padding: 40px;">
-                    <i class="fa fa-music" style="font-size: 64px; color: #3b82f6;"></i>
-                    <div style="margin-top: 20px;">
-                        <audio class="preview-audio" src="{$raw_url}" controls>您的浏览器不支持音频播放</audio>
-                    </div>
-                </div>
-
-                {elseif $p_type == 'pdf'}
-                <div class="preview-pdf">
-                    <iframe src="{$raw_url}" title="PDF预览">
-                        您的浏览器不支持 PDF 内嵌预览,请<a href="{$download_url}">下载</a>查看
-                    </iframe>
-                </div>
-
-                {elseif $p_type == 'text'}
-                <div class="preview-text">
-                    <pre>{$text_content|htmlspecialchars|default='(空文件)'}</pre>
-                    {if $text_truncated}<p class="text-warning"><i class="fa fa-exclamation-triangle"></i> 文件较大,仅预览前 2MB 内容,请下载查看完整内容</p>{/if}
-                </div>
-
-                {elseif $p_type == 'word' || $p_type == 'excel' || $p_type == 'ppt'}
-                <div class="preview-office">
-                    <div class="office-preview-container">
-                        <div id="officeLoading" class="office-loading">
-                            <i class="fa fa-spinner fa-spin" style="font-size: 48px; color: #3b82f6;"></i>
-                            <p style="margin-top: 16px; color: #64748b;">正在加载文档预览...</p>
-                        </div>
-                        <div id="officeContent" class="office-content" style="display: none;"></div>
-                        <div id="officeError" class="office-error" style="display: none;">
-                            <i class="fa fa-exclamation-triangle" style="font-size: 48px; color: #f59e0b;"></i>
-                            <p id="officeErrorMsg" style="margin-top: 16px; color: #64748b;">文档预览加载失败</p>
-                            <a href="{$download_url}" class="btn btn-primary" style="margin-top: 12px;"><i class="fa fa-download"></i> 下载文件</a>
-                        </div>
-                    </div>
-                </div>
-                <script>
-                (function() {
-                    var rawUrl = '{$raw_url}';
-                    var fileType = '{$p_type}';
-                    var officeLoading = document.getElementById('officeLoading');
-                    var officeContent = document.getElementById('officeContent');
-                    var officeError = document.getElementById('officeError');
-                    
-                    function showError(msg) {
-                        officeLoading.style.display = 'none';
-                        if (msg) { document.getElementById('officeErrorMsg').textContent = msg; }
-                        officeError.style.display = 'flex';
-                    }
-
-                    // 旧版 .doc(Word 97-2003)是 OLE2 复合文档,而 mammoth 只认 OOXML(docx)。
-                    // 这里只取前 8 字节判断真实格式,避免把整个文件下完才发现解析不了。
-                    function sniffLegacyDoc(url) {
-                        var OLE2 = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
-                        return fetch(url, { credentials: 'include', headers: { Range: 'bytes=0-7' } })
-                            .then(function(r) { return r.arrayBuffer(); })
-                            .then(function(buf) {
-                                if (buf.byteLength < 8) return false;
-                                var b = new Uint8Array(buf, 0, 8);
-                                for (var i = 0; i < 8; i++) {
-                                    if (b[i] !== OLE2[i]) return false;
-                                }
-                                return true;
-                            })
-                            .catch(function() { return false; });   // 探测失败不拦截,交给正常流程报错
-                    }
-                    
-                    function showContent(html) {
-                        officeLoading.style.display = 'none';
-                        officeContent.innerHTML = html;
-                        officeContent.style.display = 'block';
-                    }
-                    
-                    // 旧版 .doc 预检:命中则直接给出准确提示,不再下载整个文件
-                    var precheck = (fileType === 'word') ? sniffLegacyDoc(rawUrl) : Promise.resolve(false);
-
-                    precheck.then(function(isLegacyDoc) {
-                        if (isLegacyDoc) {
-                            showError('该文件是 Word 97-2003 旧版格式(.doc),浏览器无法直接解析,请下载后用 Word 打开');
-                            return;
-                        }
-                        // 获取文件并解析（携带认证信息）
-                        fetch(rawUrl, { credentials: 'include' })
-                        .then(function(response) {
-                            if (!response.ok) throw new Error('Network error');
-                            return response.arrayBuffer();
-                        })
-                        .then(function(arrayBuffer) {
-                            if (fileType === 'word') {
-                                // Word文档使用mammoth.js解析
-                                if (typeof mammoth === 'undefined') {
-                                    showError();
-                                    return;
-                                }
-                                mammoth.convertToHtml({arrayBuffer: arrayBuffer})
-                                    .then(function(result) {
-                                        showContent('<div style="padding: 20px;">' + result.value + '</div>');
-                                    })
-                                    .catch(function(err) {
-                                        console.error('Word parse error:', err);
-                                        showError();
-                                    });
-                            } else if (fileType === 'excel') {
-                                // Excel文档使用SheetJS解析
-                                if (typeof XLSX === 'undefined') {
-                                    showError();
-                                    return;
-                                }
-                                try {
-                                    var workbook = XLSX.read(arrayBuffer, {type: 'array'});
-                                    var html = '<div style="padding: 20px;">';
-                                    workbook.SheetNames.forEach(function(sheetName, index) {
-                                        var worksheet = workbook.Sheets[sheetName];
-                                        if (!worksheet) return;
-                                        
-                                        // 转换为JSON数组再构建表格
-                                        var jsonData = XLSX.utils.sheet_to_json(worksheet, {header: 1, defval: ''});
-                                        if (jsonData.length === 0) {
-                                            html += '<h4 style="margin: 20px 0 10px; color: #1f2937;"><i class="fa fa-table"></i> ' + sheetName + '</h4>';
-                                            html += '<p class="text-muted">此工作表为空</p>';
-                                            return;
-                                        }
-                                        
-                                        html += '<h4 style="margin: 20px 0 10px; color: #1f2937;"><i class="fa fa-table"></i> ' + sheetName + '</h4>';
-                                        html += '<div style="overflow-x: auto;"><table class="table table-bordered">';
-                                        
-                                        jsonData.forEach(function(row, rowIndex) {
-                                            html += '<tr>';
-                                            row.forEach(function(cell) {
-                                                if (rowIndex === 0) {
-                                                    html += '<th>' + (cell !== null && cell !== undefined ? cell : '') + '</th>';
-                                                } else {
-                                                    html += '<td>' + (cell !== null && cell !== undefined ? cell : '') + '</td>';
-                                                }
-                                            });
-                                            html += '</tr>';
-                                        });
-                                        
-                                        html += '</table></div>';
-                                    });
-                                    html += '</div>';
-                                    showContent(html);
-                                } catch (e) {
-                                    console.error('Excel parse error:', e);
-                                    showError();
-                                }
-                            } else {
-                                // PPT暂不支持客户端解析
-                                showError();
-                            }
-                        })
-                        .catch(function(err) {
-                            console.error('File load error:', err);
-                            showError();
-                        });
-                    });
-                })();
-                </script>
-
-                {else}
-                <div class="preview-empty">
-                    <i class="fa fa-file-o"></i>
-                    <p class="text-muted" style="margin-top: 15px;">该文件类型暂不支持在线预览</p>
-                    <a href="{$download_url}" class="btn btn-primary"><i class="fa fa-download"></i> 下载文件</a>
-                </div>
-                {/if}
+<section class="preview-page">
+    <header class="preview-page-head">
+        <div class="preview-file-heading">
+            <span class="preview-file-mark"><i class="fa fa-file-o"></i></span>
+            <div>
+                <span class="page-eyebrow">在线预览</span>
+                <h1>{$file.name}</h1>
+                <p>{$file.size_text} · {$file.extension|default='未知格式'} · {if $file.mime_type}{$file.mime_type}{else}通用文件{/if}</p>
             </div>
         </div>
+        <div class="preview-actions">
+            <a href="{$download_url}" class="btn btn-primary"><i class="fa fa-download"></i> 下载原文件</a>
+            <a href="{:url('index/file/detail', ['file_id' => $file.id])}" class="btn btn-default"><i class="fa fa-info-circle"></i> 文件详情</a>
+            <button type="button" id="backBtn" class="btn btn-default"><i class="fa fa-angle-left"></i> 返回</button>
+        </div>
+    </header>
+
+    {if $preview_notice}
+    <div class="preview-notice {if $preview_mode == 'converted'}is-success{else}is-warning{/if}">
+        <i class="fa {if $preview_mode == 'converted'}fa-check-circle{else}fa-info-circle{/if}"></i>
+        <span>{$preview_notice}</span>
     </div>
-</div>
+    {/if}
+
+    <div class="preview-stage">
+        {if $p_type == 'image'}
+        <div class="preview-media-stage">
+            <img class="preview-image" id="previewImage" src="{$raw_url}" alt="{$file.name}">
+            <div class="preview-inline-error" id="previewImageError"><i class="fa fa-picture-o"></i><strong>图片无法显示</strong><span>文件可能已损坏，或浏览器不支持这种编码。</span></div>
+        </div>
+
+        {elseif $p_type == 'video'}
+        <div class="preview-media-stage preview-media-dark">
+            <video class="preview-video" id="previewVideo" src="{$raw_url}" controls preload="metadata"></video>
+            <div class="preview-inline-error" id="previewVideoError"><i class="fa fa-film"></i><strong>当前浏览器无法播放此视频</strong><span>可以下载后使用本地播放器打开。</span><a href="{$download_url}" class="btn btn-primary">下载视频</a></div>
+        </div>
+
+        {elseif $p_type == 'audio'}
+        <div class="preview-audio-stage">
+            <span class="preview-audio-cover"><i class="fa fa-music"></i></span>
+            <div><strong>{$file.name}</strong><span>{$file.size_text}</span></div>
+            <audio class="preview-audio" id="previewAudio" src="{$raw_url}" controls preload="metadata"></audio>
+            <div class="preview-inline-error" id="previewAudioError"><strong>当前浏览器无法播放此音频</strong><a href="{$download_url}">下载后播放</a></div>
+        </div>
+
+        {elseif $p_type == 'pdf'}
+        <div class="pdf-viewer" id="pdfViewer" data-pdf-url="{$raw_url}">
+            <div class="pdf-toolbar">
+                <div class="pdf-toolbar-group">
+                    <button type="button" id="pdfPrev" aria-label="上一页"><i class="fa fa-angle-left"></i></button>
+                    <span><b id="pdfPage">1</b> / <span id="pdfPages">-</span></span>
+                    <button type="button" id="pdfNext" aria-label="下一页"><i class="fa fa-angle-right"></i></button>
+                </div>
+                <div class="pdf-toolbar-title"><i class="fa fa-file-pdf-o"></i> {if $preview_mode == 'converted'}转换预览{else}PDF 预览{/if}</div>
+                <div class="pdf-toolbar-group">
+                    <button type="button" id="pdfZoomOut" aria-label="缩小"><i class="fa fa-search-minus"></i></button>
+                    <span id="pdfZoom">100%</span>
+                    <button type="button" id="pdfZoomIn" aria-label="放大"><i class="fa fa-search-plus"></i></button>
+                </div>
+            </div>
+            <div class="pdf-canvas-wrap" id="pdfCanvasWrap">
+                <div class="preview-loading" id="pdfLoading"><i class="fa fa-circle-o-notch fa-spin"></i><span>正在加载文档…</span></div>
+                <canvas id="pdfCanvas"></canvas>
+                <div class="preview-inline-error" id="pdfError"><i class="fa fa-exclamation-triangle"></i><strong>PDF 加载失败</strong><span>可以下载原文件后查看。</span><a href="{$download_url}" class="btn btn-primary">下载文件</a></div>
+            </div>
+        </div>
+
+        {elseif $p_type == 'text'}
+        <div class="preview-text">
+            <div class="preview-text-head"><span><i class="fa fa-code"></i> 文本内容</span>{if $text_truncated}<span class="label label-warning">仅前 2MB</span>{/if}</div>
+            <pre>{$text_content|htmlspecialchars|default='(空文件)'}</pre>
+        </div>
+
+        {elseif $p_type == 'word' || $p_type == 'excel' || $p_type == 'ppt'}
+        <div class="office-preview-container" data-office-type="{$p_type}" data-extension="{$file.extension}" data-raw-url="{$raw_url}">
+            <div id="officeLoading" class="preview-loading"><i class="fa fa-circle-o-notch fa-spin"></i><span>正在解析文档…</span></div>
+            <div id="officeContent" class="office-content"></div>
+            <div id="officeError" class="preview-inline-error">
+                <i class="fa fa-file-text-o"></i>
+                <strong id="officeErrorTitle">暂时无法在线预览</strong>
+                <span id="officeErrorMsg">此格式需要下载后使用对应软件打开。</span>
+                <a href="{$download_url}" class="btn btn-primary"><i class="fa fa-download"></i> 下载原文件</a>
+            </div>
+        </div>
+
+        {else}
+        <div class="preview-unsupported">
+            <span class="preview-unsupported-mark"><i class="fa fa-file-o"></i><b>.{$file.extension|default='FILE'}</b></span>
+            <h2>浏览器无法直接预览这种文件</h2>
+            <p>文件本身没有问题。请下载后使用支持该格式的桌面应用打开。</p>
+            <div>
+                <a href="{$download_url}" class="btn btn-primary"><i class="fa fa-download"></i> 下载文件</a>
+                <a href="{:url('index/file/detail', ['file_id' => $file.id])}" class="btn btn-default">查看文件信息</a>
+            </div>
+        </div>
+        {/if}
+    </div>
+</section>
+
+{if $p_type == 'pdf'}
+<script>
+if (!Promise.withResolvers) {
+    Promise.withResolvers = function() {
+        var resolve, reject;
+        var promise = new Promise(function(res, rej) { resolve = res; reject = rej; });
+        return {promise: promise, resolve: resolve, reject: reject};
+    };
+}
+</script>
+<script type="module">
+import { getDocument, GlobalWorkerOptions } from '/static/vendor/pdfjs/6.3.289/build/pdf.js';
+GlobalWorkerOptions.workerSrc = '/static/vendor/pdfjs/6.3.289/build/pdf.worker.js';
+
+const viewer = document.getElementById('pdfViewer');
+const canvas = document.getElementById('pdfCanvas');
+const canvasWrap = document.getElementById('pdfCanvasWrap');
+const loading = document.getElementById('pdfLoading');
+const errorBox = document.getElementById('pdfError');
+let documentProxy = null;
+let pageNumber = 1;
+let zoom = 1;
+let renderTask = null;
+
+function showPdfError() {
+    loading.style.display = 'none';
+    canvas.style.display = 'none';
+    errorBox.classList.add('is-visible');
+}
+
+async function renderPage() {
+    if (!documentProxy) return;
+    if (renderTask) {
+        try { renderTask.cancel(); } catch (ignore) {}
+    }
+    const page = await documentProxy.getPage(pageNumber);
+    const baseViewport = page.getViewport({scale: 1});
+    const available = Math.max(300, canvasWrap.clientWidth - 40);
+    const fitScale = Math.min(1.7, available / baseViewport.width);
+    const viewport = page.getViewport({scale: fitScale * zoom});
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.floor(viewport.width * ratio);
+    canvas.height = Math.floor(viewport.height * ratio);
+    canvas.style.width = Math.floor(viewport.width) + 'px';
+    canvas.style.height = Math.floor(viewport.height) + 'px';
+    const context = canvas.getContext('2d');
+    renderTask = page.render({canvasContext: context, viewport: viewport, transform: ratio === 1 ? null : [ratio, 0, 0, ratio, 0, 0]});
+    await renderTask.promise;
+    loading.style.display = 'none';
+    canvas.style.display = 'block';
+    document.getElementById('pdfPage').textContent = pageNumber;
+    document.getElementById('pdfPrev').disabled = pageNumber <= 1;
+    document.getElementById('pdfNext').disabled = pageNumber >= documentProxy.numPages;
+    document.getElementById('pdfZoom').textContent = Math.round(zoom * 100) + '%';
+}
+
+try {
+    documentProxy = await getDocument({
+        url: viewer.dataset.pdfUrl,
+        cMapUrl: '/static/vendor/pdfjs/6.3.289/cmaps/',
+        cMapPacked: true,
+        standardFontDataUrl: '/static/vendor/pdfjs/6.3.289/standard_fonts/',
+        wasmUrl: '/static/vendor/pdfjs/6.3.289/wasm/'
+    }).promise;
+    document.getElementById('pdfPages').textContent = documentProxy.numPages;
+    await renderPage();
+} catch (error) {
+    console.error('PDF preview failed', error);
+    showPdfError();
+}
+
+document.getElementById('pdfPrev').addEventListener('click', async () => { if (pageNumber > 1) { pageNumber--; await renderPage(); } });
+document.getElementById('pdfNext').addEventListener('click', async () => { if (documentProxy && pageNumber < documentProxy.numPages) { pageNumber++; await renderPage(); } });
+document.getElementById('pdfZoomOut').addEventListener('click', async () => { zoom = Math.max(.5, zoom - .15); await renderPage(); });
+document.getElementById('pdfZoomIn').addEventListener('click', async () => { zoom = Math.min(2.5, zoom + .15); await renderPage(); });
+</script>
+{/if}
+
+{if $p_type == 'word' || $p_type == 'excel' || $p_type == 'ppt'}
+<script>
+(function() {
+    var container = document.querySelector('.office-preview-container');
+    if (!container) return;
+    var fileType = container.getAttribute('data-office-type');
+    var extension = String(container.getAttribute('data-extension') || '').toLowerCase();
+    var rawUrl = container.getAttribute('data-raw-url');
+    var loading = document.getElementById('officeLoading');
+    var content = document.getElementById('officeContent');
+    var errorBox = document.getElementById('officeError');
+
+    function escapeHtml(value) {
+        return $('<span>').text(value == null ? '' : String(value)).html();
+    }
+
+    function sanitizeHtml(html) {
+        var wrapper = document.createElement('div');
+        wrapper.innerHTML = html;
+        $(wrapper).find('script, iframe, object, embed, form').remove();
+        $(wrapper).find('*').each(function() {
+            var attrs = Array.prototype.slice.call(this.attributes || []);
+            for (var i = 0; i < attrs.length; i++) {
+                var name = attrs[i].name.toLowerCase();
+                var value = String(attrs[i].value || '').toLowerCase();
+                if (name.indexOf('on') === 0 || ((name === 'href' || name === 'src') && value.indexOf('javascript:') === 0)) {
+                    this.removeAttribute(attrs[i].name);
+                }
+            }
+        });
+        return wrapper.innerHTML;
+    }
+
+    function showError(title, message) {
+        loading.style.display = 'none';
+        content.style.display = 'none';
+        document.getElementById('officeErrorTitle').textContent = title || '暂时无法在线预览';
+        document.getElementById('officeErrorMsg').textContent = message || '请下载后使用对应软件打开。';
+        errorBox.classList.add('is-visible');
+    }
+
+    function showContent(html) {
+        loading.style.display = 'none';
+        content.innerHTML = sanitizeHtml(html);
+        content.style.display = 'block';
+    }
+
+    if (fileType === 'ppt') {
+        showError('演示文稿需要服务端转换', '当前服务器未安装转换组件，请下载后使用 PowerPoint 或兼容软件打开。');
+        return;
+    }
+    if (fileType === 'word' && extension === 'doc') {
+        showError('旧版 Word 格式无法在浏览器解析', '安装 LibreOffice 转换组件后可转为 PDF 预览，当前请下载后打开。');
+        return;
+    }
+
+    fetch(rawUrl, {credentials: 'include'})
+        .then(function(response) { if (!response.ok) throw new Error('load'); return response.arrayBuffer(); })
+        .then(function(arrayBuffer) {
+            if (fileType === 'word') {
+                if (typeof mammoth === 'undefined') {
+                    showError('文档解析组件加载失败', '网络不可用时可配置 LibreOffice 服务端转换，或直接下载文件。');
+                    return;
+                }
+                mammoth.convertToHtml({arrayBuffer: arrayBuffer})
+                    .then(function(result) { showContent('<div class="office-document">' + result.value + '</div>'); })
+                    .catch(function() { showError('Word 文档解析失败', '文档可能包含浏览器不支持的复杂内容。'); });
+                return;
+            }
+
+            if (typeof XLSX === 'undefined') {
+                showError('表格解析组件加载失败', '网络不可用时可配置 LibreOffice 服务端转换，或直接下载文件。');
+                return;
+            }
+            try {
+                var workbook = XLSX.read(arrayBuffer, {type: 'array'});
+                var html = '<div class="office-workbook">';
+                workbook.SheetNames.forEach(function(sheetName) {
+                    var rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {header: 1, defval: ''});
+                    html += '<section class="office-sheet"><h3><i class="fa fa-table"></i> ' + escapeHtml(sheetName) + '</h3>';
+                    if (!rows.length) {
+                        html += '<p class="text-muted">此工作表为空</p></section>';
+                        return;
+                    }
+                    html += '<div class="office-table-wrap"><table><tbody>';
+                    rows.slice(0, 2000).forEach(function(row, rowIndex) {
+                        html += '<tr>';
+                        row.forEach(function(cell) {
+                            var tag = rowIndex === 0 ? 'th' : 'td';
+                            html += '<' + tag + '>' + escapeHtml(cell) + '</' + tag + '>';
+                        });
+                        html += '</tr>';
+                    });
+                    html += '</tbody></table></div>';
+                    if (rows.length > 2000) html += '<p class="preview-limit-note">仅显示前 2000 行，请下载查看完整内容。</p>';
+                    html += '</section>';
+                });
+                showContent(html + '</div>');
+            } catch (error) {
+                showError('表格解析失败', '文件可能使用了浏览器不支持的旧格式或复杂特性。');
+            }
+        })
+        .catch(function() { showError('文件读取失败', '请检查文件是否完整，或下载后查看。'); });
+})();
+</script>
+{/if}
 {/block}
 
 {block name="script"}
 <script>
-// 返回上一页;若没有站内来源(直接打开/新标签页打开)则退回该文件所在目录,而不是回首页
 (function() {
-    var btn = document.getElementById('backBtn');
-    if (!btn) { return; }
-    btn.addEventListener('click', function() {
-        var ref = document.referrer || '';
-        if (ref.indexOf(location.origin) === 0 && history.length > 1) {
-            history.back();
-        } else {
-            location.href = '{:url("index/file/index", ["parent_id" => $file.parent_id])}';
-        }
+    var backButton = document.getElementById('backBtn');
+    if (backButton) {
+        backButton.addEventListener('click', function() {
+            var ref = document.referrer || '';
+            if (ref.indexOf(location.origin) === 0 && history.length > 1) history.back();
+            else location.href = '{:url("index/file/index", ["parent_id" => $file.parent_id])}';
+        });
+    }
+
+    [['previewImage', 'previewImageError'], ['previewVideo', 'previewVideoError'], ['previewAudio', 'previewAudioError']].forEach(function(ids) {
+        var media = document.getElementById(ids[0]);
+        var error = document.getElementById(ids[1]);
+        if (!media || !error) return;
+        media.addEventListener('error', function() {
+            media.style.display = 'none';
+            error.classList.add('is-visible');
+        });
     });
+
+    var pdfErrorTimer = null;
+    if (document.getElementById('pdfLoading')) {
+        pdfErrorTimer = window.setTimeout(function() {
+            var loading = document.getElementById('pdfLoading');
+            var error = document.getElementById('pdfError');
+            var canvas = document.getElementById('pdfCanvas');
+            if (loading && loading.style.display !== 'none') {
+                loading.style.display = 'none';
+                if (canvas) canvas.style.display = 'none';
+                if (error) error.classList.add('is-visible');
+            }
+        }, 15000);
+    }
 })();
 </script>
 {/block}

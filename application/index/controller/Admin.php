@@ -27,7 +27,9 @@ class Admin extends Base
         foreach ($users as &$user) {
             $user['storage_quota_text'] = format_file_size($user['storage_quota']);
             $user['storage_used_text'] = format_file_size($user['storage_used']);
-            $user['storage_percent'] = round(($user['storage_used'] / $user['storage_quota']) * 100, 2);
+            $user['storage_percent'] = $user['storage_quota'] > 0
+                ? round(($user['storage_used'] / $user['storage_quota']) * 100, 2)
+                : 0;
             
             $user_roles_data = Db::name('user_roles')
                 ->alias('ur')
@@ -174,6 +176,7 @@ class Admin extends Base
 
     public function deleteUser()
     {
+        $this->requirePost();
         $this->checkAdmin();
         
         $user_id = input('user_id', 0);
@@ -221,6 +224,7 @@ class Admin extends Base
 
     public function deleteRole()
     {
+        $this->requirePost();
         $this->checkAdmin();
 
         $role_id = input('role_id', 0);
@@ -447,7 +451,9 @@ class Admin extends Base
         foreach ($users as &$user) {
             $user['storage_quota_text'] = format_file_size($user['storage_quota']);
             $user['storage_used_text'] = format_file_size($user['storage_used']);
-            $user['storage_percent'] = round(($user['storage_used'] / $user['storage_quota']) * 100, 2);
+            $user['storage_percent'] = $user['storage_quota'] > 0
+                ? round(($user['storage_used'] / $user['storage_quota']) * 100, 2)
+                : 0;
         }
         
         $this->assign('total_users', $total_users);
@@ -462,6 +468,7 @@ class Admin extends Base
 
     public function updateQuota()
     {
+        $this->requirePost();
         $this->checkAdmin();
         
         $user_id = input('user_id', 0);
@@ -497,6 +504,12 @@ class Admin extends Base
         foreach ($tasks as &$task) {
             $task['status_text'] = $this->getTaskStatusText($task['status']);
             $task['type_text'] = $this->getTaskTypeText($task['type']);
+            $task['name'] = isset($task['name']) && $task['name'] !== ''
+                ? $task['name']
+                : $task['type_text'];
+            if (!isset($task['progress'])) {
+                $task['progress'] = (int)$task['status'] === 2 ? 100 : ((int)$task['status'] === 1 ? 50 : 0);
+            }
         }
         
         $this->assign('tasks', $tasks);
@@ -524,6 +537,34 @@ class Admin extends Base
         return $this->fetch();
     }
 
+    public function cancelTask()
+    {
+        $this->requirePost();
+        $this->checkAdmin();
+
+        $task_id = (int)input('task_id', 0);
+        if ($task_id <= 0) {
+            return $this->error('任务参数错误');
+        }
+
+        // 当前任务函数不是可中断协程，只允许取消尚未被工作器领取的任务，
+        // 避免把“正在执行”标为取消后又被工作器覆盖为成功。
+        $updated = Db::name('async_tasks')
+            ->where('id', $task_id)
+            ->where('status', 0)
+            ->update([
+                'status' => 4,
+                'completed_at' => date('Y-m-d H:i:s'),
+            ]);
+
+        if (!$updated) {
+            return $this->error('仅待执行任务可以取消');
+        }
+
+        log_operation('task', 'cancel', '取消异步任务:' . $task_id);
+        return $this->success('任务已取消');
+    }
+
     private function getModuleText($module)
     {
         $modules = ['auth' => '认证', 'file' => '文件', 'share' => '分享', 'user' => '用户', 'log' => '日志', 'storage' => '存储', 'recycle' => '回收站'];
@@ -538,7 +579,7 @@ class Admin extends Base
 
     private function getTaskStatusText($status)
     {
-        $map = [0 => '待执行', 1 => '执行中', 2 => '成功', 3 => '失败'];
+        $map = [0 => '待执行', 1 => '执行中', 2 => '成功', 3 => '失败', 4 => '已取消'];
         return $map[$status] ?? '未知';
     }
 

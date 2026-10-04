@@ -10,9 +10,33 @@ class Base extends Controller
 {
     protected $user_id;
     protected $user_info;
+    protected $admin_checked = false;
+    protected $admin_cache = false;
+    protected $role_ids_cache = null;
+    protected $managed_role_ids_cache = null;
+    protected $role_folder_map_cache = null;
+    protected $internal_share_map_cache = null;
+    protected $parent_id_cache = [];
 
     protected function initialize()
     {
+        $csrf_token = csrf_token_value();
+        $this->assign('csrf_token', $csrf_token);
+
+        if ($this->request->isPost()) {
+            $provided_token = (string)$this->request->header('X-CSRF-Token', '');
+            if ($provided_token === '') {
+                $provided_token = (string)input('__csrf_token__', '');
+            }
+            if (!csrf_token_valid($provided_token)) {
+                throw new HttpResponseException(json([
+                    'code' => 419,
+                    'msg'  => '页面已过期，请刷新后重试',
+                    'data' => [],
+                ], 419));
+            }
+        }
+
         $this->user_id = Jwt::getCurrentUserId();
         if ($this->user_id) {
             $this->user_info = Jwt::getCurrentUser();
@@ -52,6 +76,17 @@ class Base extends Controller
         }
     }
 
+    protected function requirePost()
+    {
+        if (!$this->request->isPost()) {
+            throw new HttpResponseException(json([
+                'code' => 405,
+                'msg'  => '请求方式不允许',
+                'data' => [],
+            ], 405));
+        }
+    }
+
     protected function checkAdmin($halt = true)
     {
         if ($halt) {
@@ -60,36 +95,31 @@ class Base extends Controller
             return false;
         }
 
-        // 先查询当前用户的角色ID
-        $user_role_ids = Db::name('user_roles')
-            ->where('user_id', $this->user_id)
-            ->column('role_id');
+        if (!$this->admin_checked) {
+            $this->admin_checked = true;
+            $user_role_ids = $this->getCurrentRoleIds();
 
-        if (empty($user_role_ids)) {
-            if ($halt) {
-                $this->error('无权限访问');
+            if (!empty($user_role_ids)) {
+                $role = Db::name('roles')
+                    ->where('id', 'in', $user_role_ids)
+                    ->where('status', 1)
+                    ->where(function($q) {
+                        $q->where('code', 'super_admin')
+                          ->whereOr('code', 'admin')
+                          ->whereOr('code', 'administrator')
+                          ->whereOr('name', 'like', '%管理员%')
+                          ->whereOr('code', 'super-admin');
+                    })
+                    ->value('id');
+                $this->admin_cache = !!$role;
             }
-            return false;
         }
 
-        // 再查询这些角色中是否有超级管理员或常见管理员角色（兼容不同编码/名称）
-        $role = Db::name('roles')
-            ->where('id', 'in', $user_role_ids)
-            ->where('status', 1)
-            ->where(function($q) {
-                $q->where('code', 'super_admin')
-                  ->whereOr('code', 'admin')
-                  ->whereOr('code', 'administrator')
-                  ->whereOr('name', 'like', '%管理员%')
-                  ->whereOr('code', 'super-admin');
-            })
-            ->value('id');
-
-        if (!$role && $halt) {
+        if (!$this->admin_cache && $halt) {
             $this->error('无权限访问');
         }
 
-        return !!$role;
+        return $this->admin_cache;
     }
 
     protected function checkPermission($permission_code)
@@ -111,11 +141,16 @@ class Base extends Controller
             return [];
         }
 
+        if ($this->role_ids_cache !== null) {
+            return $this->role_ids_cache;
+        }
+
         $role_ids = Db::name('user_roles')
             ->where('user_id', $this->user_id)
             ->column('role_id');
 
-        return array_values(array_unique(array_map('intval', (array)$role_ids)));
+        $this->role_ids_cache = array_values(array_unique(array_map('intval', (array)$role_ids)));
+        return $this->role_ids_cache;
     }
 
     protected function getAccessibleUserIds()
@@ -176,12 +211,17 @@ class Base extends Controller
             return [];
         }
 
+        if ($this->managed_role_ids_cache !== null) {
+            return $this->managed_role_ids_cache;
+        }
+
         $role_ids = Db::name('user_roles')
             ->where('user_id', $this->user_id)
             ->where('is_manager', 1)
             ->column('role_id');
 
-        return array_values(array_unique(array_map('intval', (array)$role_ids)));
+        $this->managed_role_ids_cache = array_values(array_unique(array_map('intval', (array)$role_ids)));
+        return $this->managed_role_ids_cache;
     }
 
     /**
@@ -215,6 +255,11 @@ class Base extends Controller
             return true;
         }
 
+        // “内部共享-可编辑”对共享节点及其子树生效。
+        if ($this->getInternalSharePermission($file) >= 2) {
+            return true;
+        }
+
         // 检查文件是否在某个角色文件夹树下
         $file_role_ids = $this->getFileRoleIds($file);
         if (empty($file_role_ids)) {
@@ -244,10 +289,13 @@ class Base extends Controller
         }
 
         // 获取所有角色文件夹ID
-        $role_folders = Db::name('roles')
-            ->where('folder_id', '>', 0)
-            ->where('status', 1)
-            ->column('folder_id', 'id');
+        if ($this->role_folder_map_cache === null) {
+            $this->role_folder_map_cache = Db::name('roles')
+                ->where('folder_id', '>', 0)
+                ->where('status', 1)
+                ->column('folder_id', 'id');
+        }
+        $role_folders = $this->role_folder_map_cache;
 
         if (empty($role_folders)) {
             return [];
@@ -283,6 +331,52 @@ class Base extends Controller
         }
 
         return [];
+    }
+
+    /**
+     * 获取当前用户对文件的内部共享权限。
+     * 共享目录的权限会继承给其全部子孙节点。
+     */
+    protected function getInternalSharePermission($file)
+    {
+        if (!$this->user_id || empty($file)) {
+            return 0;
+        }
+
+        if ($this->internal_share_map_cache === null) {
+            $this->internal_share_map_cache = Db::name('file_internal_shares')
+                ->where('shared_user_id', $this->user_id)
+                ->column('permission', 'file_id');
+        }
+        if (empty($this->internal_share_map_cache)) {
+            return 0;
+        }
+
+        $cursor = (int)$file['id'];
+        $parent_id = isset($file['parent_id']) ? (int)$file['parent_id'] : 0;
+        $guard = 0;
+
+        while ($cursor > 0 && $guard++ < 100) {
+            $permission = isset($this->internal_share_map_cache[$cursor])
+                ? (int)$this->internal_share_map_cache[$cursor]
+                : 0;
+            if ($permission > 0) {
+                return $permission;
+            }
+
+            if ($cursor === (int)$file['id']) {
+                $cursor = $parent_id;
+            } else {
+                if (!array_key_exists($cursor, $this->parent_id_cache)) {
+                    $this->parent_id_cache[$cursor] = (int)Db::name('files')
+                        ->where('id', $cursor)
+                        ->value('parent_id');
+                }
+                $cursor = $this->parent_id_cache[$cursor];
+            }
+        }
+
+        return 0;
     }
 
     protected function success($msg = '', $url = null, $data = '', $wait = 3, array $header = [])

@@ -1,5 +1,6 @@
 /.idea
 /.vscode
+/.claude
 /vendor
 *.log
 thinkphp
@@ -8,4 +9,3 @@ thinkphp
 /runtime
 /database
 /uploads
-/deploy

@@ -1,0 +1,39 @@
+# Copy this file to /etc/online-file-deploy.conf and set permission 600.
+
+# Fresh production project root. BaoTa's site root will be current/public.
+APP_ROOT=/www/wwwroot/online_file
+# The SSH alias is configured in ~/.ssh/config as described in DEPLOYMENT.md.
+REPO_URL=git@github-online-file:Wmengbing/online_file.git
+
+# Typical BaoTa PHP 7.4 path. Adjust it to the installed PHP version.
+PHP_BIN=/www/server/php/74/bin/php
+COMPOSER_BIN=/usr/bin/composer
+# If Composer is a phar file instead, leave COMPOSER_BIN as-is and set:
+# COMPOSER_PHAR=/www/server/php/74/bin/composer.phar
+
+WEB_USER=www
+WEB_GROUP=www
+KEEP_RELEASES=5
+
+# Check through local Nginx so deploys do not depend on public DNS. Replace the
+# Host value with the domain configured in BaoTa. Any non-2xx response fails.
+HEALTHCHECK_URL=http://127.0.0.1/login
+HEALTHCHECK_HOST=files.example.com
+HEALTHCHECK_TIMEOUT=10
+HEALTHCHECK_RETRIES=6
+
+# Adjust the PHP version to match BaoTa. Append a Supervisor restart command if
+# the optional task worker is enabled.
+POST_SWITCH_COMMAND='/etc/init.d/php-fpm-74 reload'
+
+# Database backup is required by default before every deploy. Prefer a root-only
+# MySQL option file; the password will not appear in the process list.
+DB_BACKUP_ENABLED=1
+DB_BACKUP_REQUIRED=1
+MYSQL_DEFAULTS_FILE=/root/.online-file-mysql.cnf
+# Alternatively, configure mysql_config_editor and use:
+# MYSQL_DEFAULTS_FILE=
+# MYSQL_LOGIN_PATH=online_file
+MYSQL_BIN=/www/server/mysql/bin/mysql
+MYSQLDUMP_BIN=/www/server/mysql/bin/mysqldump
+KEEP_DB_BACKUPS_DAYS=14

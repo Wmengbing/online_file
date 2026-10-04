@@ -55,6 +55,32 @@ function generate_password($length = 6)
 }
 
 /**
+ * 获取当前会话的 CSRF 令牌。
+ * 令牌在同一会话内保持稳定，兼容多标签页和分片上传的并发请求。
+ */
+function csrf_token_value()
+{
+    $token = session('__csrf_token__');
+    if (!is_string($token) || strlen($token) < 32) {
+        $token = bin2hex(random_bytes(32));
+        session('__csrf_token__', $token);
+    }
+    return $token;
+}
+
+/**
+ * 校验请求携带的 CSRF 令牌。
+ */
+function csrf_token_valid($token)
+{
+    $expected = session('__csrf_token__');
+    return is_string($expected)
+        && $expected !== ''
+        && is_string($token)
+        && hash_equals($expected, $token);
+}
+
+/**
  * 格式化文件大小
  */
 function format_file_size($bytes)
@@ -289,13 +315,17 @@ function hard_delete_file_tree($user_id, array $root_ids)
 
     // 物理删除(引用计数安全)
     $total_size = 0;
-    $file_owners = [];
+    $owner_sizes = [];
     foreach ($rows as $row) {
         if ($row['type'] != 1 || !$row['path']) {
             continue;
         }
         $total_size += (int)$row['size'];
-        $file_owners[] = (int)$row['user_id'];
+        $owner_id = (int)$row['user_id'];
+        if (!isset($owner_sizes[$owner_id])) {
+            $owner_sizes[$owner_id] = 0;
+        }
+        $owner_sizes[$owner_id] += (int)$row['size'];
 
         $refs = Db::name('files')
             ->where('path', $row['path'])
@@ -325,14 +355,13 @@ function hard_delete_file_tree($user_id, array $root_ids)
     Db::name('files')->where('id', 'in', $all_ids)->delete();
 
     // 回收配额 - 根据文件实际所有者回收
-    if ($total_size > 0 && !empty($file_owners)) {
-        $owner_counts = array_count_values(array_map('strval', $file_owners));
-        foreach ($owner_counts as $owner_id => $count) {
-            $owner_size = (int)($total_size * $count / count($file_owners));
+    if ($total_size > 0 && !empty($owner_sizes)) {
+        foreach ($owner_sizes as $owner_id => $owner_size) {
             Db::name('users')
                 ->where('id', $owner_id)
-                ->dec('storage_used', $owner_size)
-                ->update();
+                ->update([
+                    'storage_used' => Db::raw('GREATEST(storage_used - ' . (int)$owner_size . ', 0)'),
+                ]);
         }
     }
 
@@ -345,7 +374,9 @@ function hard_delete_file_tree($user_id, array $root_ids)
  */
 function clean_expired_recycle($days = 30)
 {
-    $expire_time = date('Y-m-d H:i:s', strtotime('-' . ((int)$days) . ' days'));
+    // file_recycle.expire_time 在删除时已经写入最终过期时间，不能再次倒推 days，
+    // 否则“保留30天”会变成约60天后才清理。
+    $expire_time = date('Y-m-d H:i:s');
 
     $expired = Db::name('file_recycle')
         ->alias('r')
@@ -574,9 +605,13 @@ function is_allowed_extension($extension)
 {
     $allowed = config('app.allowed_extensions', []);
     if (empty($allowed)) {
-        return true;
+        // 即使未配置业务白名单，也绝不接受常见服务端可执行脚本。
+        // 上传目录当前位于 Web 根目录外，此处仍作为部署误配置时的第二道保护。
+        $blocked = ['php', 'php3', 'php4', 'php5', 'php7', 'php8', 'phtml', 'phar',
+            'cgi', 'pl', 'pyc', 'asp', 'aspx', 'jsp', 'jspx', 'htaccess', 'user.ini'];
+        return !in_array(strtolower((string)$extension), $blocked, true);
     }
-    return in_array(strtolower($extension), $allowed);
+    return in_array(strtolower($extension), array_map('strtolower', $allowed), true);
 }
 
 /**

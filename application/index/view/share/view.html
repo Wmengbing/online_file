@@ -24,7 +24,7 @@
                 {/if}
                 <hr>
                 {if $share.file_type == 1}
-                <a href="{:url('index/share/download', ['token' => $share.token, 'password' => input('password')])}" class="btn btn-primary btn-lg">
+                <a href="{:url('index/share/download', ['token' => $share.token])}" class="btn btn-primary btn-lg">
                     <i class="fa fa-download"></i> 下载文件
                 </a>
                 {else}

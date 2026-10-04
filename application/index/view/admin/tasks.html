@@ -41,7 +41,7 @@
                         </td>
                         <td>{$task.created_at}</td>
                         <td>
-                            {if $task.status == 0 || $task.status == 1}
+                            {if $task.status == 0}
                             <button class="btn btn-xs btn-warning" onclick="cancelTask({$task.id})"><i class="fa fa-times"></i> 取消</button>
                             {/if}
                         </td>

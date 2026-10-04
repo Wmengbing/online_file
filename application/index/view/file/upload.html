@@ -3,174 +3,63 @@
 {block name="title"}上传文件 - 文件共享系统{/block}
 
 {block name="content"}
-<style>
-    .upload-page {
-        position: relative;
-        overflow: hidden;
-    }
-    .upload-page:before {
-        content: "";
-        position: absolute;
-        inset: 0 auto auto 0;
-        width: 220px;
-        height: 220px;
-        background: radial-gradient(circle, rgba(96,165,250,0.18), rgba(96,165,250,0));
-        pointer-events: none;
-    }
-    .upload-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 12px;
-        position: relative;
-        z-index: 1;
-    }
-    .upload-header h3 {
-        margin: 0;
-        color: #1e293b;
-        font-weight: 700;
-    }
-    .upload-header h3 .fa {
-        color: #2563eb;
-        margin-right: 8px;
-    }
-    .upload-page .text-muted {
-        color: #64748b !important;
-    }
-    .upload-dropzone {
-        position: relative;
-        z-index: 1;
-        border: 2px dashed #bfdbfe;
-        border-radius: 18px;
-        padding: 38px 24px;
-        cursor: pointer;
-        background: linear-gradient(180deg, #f8fbff 0%, #eef6ff 100%);
-        transition: all 0.25s ease;
-        box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
-    }
-    .upload-dropzone:hover,
-    .upload-dropzone.dragover {
-        border-color: #60a5fa;
-        background: linear-gradient(180deg, #edf6ff 0%, #e0f2fe 100%);
-        box-shadow: 0 12px 24px rgba(59, 130, 246, 0.08);
-    }
-    .upload-dropzone i {
-        display: block;
-        font-size: 48px;
-        color: #3b82f6;
-        margin-bottom: 12px;
-        text-shadow: 0 8px 18px rgba(59,130,246,0.12);
-    }
-    .upload-dropzone p {
-        margin: 0;
-        font-size: 16px;
-        color: #475569;
-    }
-    .upload-dropzone a {
-        color: #2563eb;
-        text-decoration: none;
-        font-weight: 600;
-    }
-    .upload-dropzone a:hover {
-        text-decoration: underline;
-    }
-    #queueTable {
-        display: none;
-        margin-top: 18px;
-        border-radius: 12px;
-        overflow: hidden;
-        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
-    }
-    #queueTable th {
-        white-space: nowrap;
-    }
-    #queueTable .file-name {
-        font-weight: 600;
-        color: #1e293b;
-    }
-    .upload-progress {
-        margin: 0;
-        height: 16px;
-        background: #edf2ff;
-        border-radius: 999px;
-        overflow: hidden;
-        box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.08);
-    }
-    .upload-progress .progress-bar {
-        background: linear-gradient(90deg, #60a5fa, #2563eb);
-        border-radius: 999px;
-        line-height: 16px;
-        font-size: 10px;
-        color: #fff;
-        min-width: 28px;
-    }
-    .upload-actions {
-        display: flex;
-        gap: 10px;
-        margin-top: 18px;
-        position: relative;
-        z-index: 1;
-    }
-    .upload-actions .btn {
-        min-width: 120px;
-    }
-    @media (max-width: 767px) {
-        .upload-header {
-            display: block;
-        }
-        .upload-header .pull-right {
-            float: none !important;
-            margin-top: 12px;
-        }
-        .upload-actions {
-            flex-wrap: wrap;
-        }
-    }
-</style>
-<div class="row">
-    <div class="col-md-8 col-md-offset-2">
-        <div class="content-box upload-page">
-            <div class="upload-header">
-                <h3><i class="fa fa-upload"></i> 上传文件</h3>
-                <div>
-                    <a href="{:url('index/file/uploadTasks')}" class="btn btn-info btn-sm" style="margin-right: 8px;"><i class="fa fa-tasks"></i> 查看上传任务</a>
-                    <a href="{:url('index/file/index', ['parent_id' => $parent_id])}" class="btn btn-default btn-sm">返回文件列表</a>
-                </div>
-            </div>
-            <p class="text-muted">
-                支持多文件与拖拽上传，超过 {$chunk_size_text} 自动分片并发上传，支持断点续传
-            </p>
-            <hr>
+<section class="upload-page">
+    <header class="page-heading">
+        <div class="page-heading-main">
+            <span class="page-eyebrow">高速传输</span>
+            <h1 class="page-title">上传文件与文件夹</h1>
+            <p class="page-description">保留文件夹层级；大于 {$chunk_size_text} 的文件自动分片，网络中断后可继续上传。</p>
+        </div>
+        <div class="page-heading-actions">
+            <a href="{:url('index/file/uploadTasks')}" class="btn btn-default"><i class="fa fa-tasks"></i> 上传任务</a>
+            <a href="{:url('index/file/index', ['parent_id' => $parent_id])}" class="btn btn-default"><i class="fa fa-angle-left"></i> 返回文件列表</a>
+        </div>
+    </header>
 
-            <div id="dropZone" class="upload-dropzone text-center">
-                <i class="fa fa-cloud-upload"></i>
-                <p>将文件拖到此处，或 <a href="javascript:;" onclick="$('#fileInput').trigger('click')">点击选择文件</a></p>
-                <p style="margin-top: 10px;"><a href="javascript:void(0);" id="folderSelectLink" style="font-size: 14px;"><i class="fa fa-folder-open"></i> 选择文件夹上传</a></p>
-                <input type="file" id="fileInput" multiple style="display: none;">
-                <input type="file" id="folderInput" multiple webkitdirectory directory mozdirectory style="display: none;">
+    <div class="upload-landing">
+        <div id="dropZone" class="upload-dropzone" tabindex="0" role="button" aria-label="拖放或选择要上传的文件">
+            <div class="upload-cloud-mark"><i class="fa fa-cloud-upload"></i></div>
+            <span class="upload-kicker">拖放上传</span>
+            <h2>把文件或整个文件夹拖到这里</h2>
+            <p>也可以通过下方按钮选择内容，目录结构会自动保留。</p>
+            <div class="upload-picker-actions">
+                <button type="button" class="btn btn-primary" id="fileSelectBtn"><i class="fa fa-file-o"></i> 选择文件</button>
+                <button type="button" class="btn btn-default" id="folderSelectLink"><i class="fa fa-folder-open-o"></i> 选择文件夹</button>
             </div>
+            <input type="file" id="fileInput" multiple class="sr-only" tabindex="-1">
+            <input type="file" id="folderInput" multiple webkitdirectory directory mozdirectory class="sr-only" tabindex="-1">
+        </div>
 
-            <table class="table table-striped" id="queueTable">
-                <thead>
-                    <tr>
-                        <th>文件</th>
-                        <th width="110">大小</th>
-                        <th width="200">进度</th>
-                        <th width="110">状态</th>
-                        <th width="70">操作</th>
-                    </tr>
-                </thead>
+        <aside class="upload-guide-card">
+            <span class="upload-guide-label">上传能力</span>
+            <h3>无需先压缩文件夹</h3>
+            <ul>
+                <li><span><i class="fa fa-folder-open"></i></span><div><strong>保留目录层级</strong><small>支持选择和拖入整个文件夹</small></div></li>
+                <li><span><i class="fa fa-refresh"></i></span><div><strong>断点续传</strong><small>大文件失败后可继续补传分片</small></div></li>
+                <li><span><i class="fa fa-bolt"></i></span><div><strong>自动秒传</strong><small>相同内容无需重复写入磁盘</small></div></li>
+            </ul>
+            <div class="upload-guide-tip"><i class="fa fa-info-circle"></i> 文件将上传到当前所在目录</div>
+        </aside>
+    </div>
+
+    <div class="upload-queue-card">
+        <div class="upload-queue-head">
+            <div><strong>上传队列</strong><span id="queueSummary">尚未选择文件</span></div>
+            <span class="upload-queue-count"><b id="queueCount">0</b> 项</span>
+        </div>
+        <div class="upload-table-wrap">
+            <table class="table" id="queueTable">
+                <thead><tr><th>文件</th><th>大小</th><th>进度</th><th>状态</th><th>操作</th></tr></thead>
                 <tbody></tbody>
             </table>
-
-            <div class="upload-actions">
-                <button type="button" class="btn btn-primary" id="startAllBtn"><i class="fa fa-play"></i> 开始上传</button>
-                <button type="button" class="btn btn-default" id="clearAllBtn">清空列表</button>
-            </div>
+            <div class="upload-queue-empty" id="queueEmpty"><i class="fa fa-inbox"></i><span>选择内容后会显示在这里</span></div>
+        </div>
+        <div class="upload-actions">
+            <button type="button" class="btn btn-primary" id="startAllBtn" disabled><i class="fa fa-play"></i> 开始上传</button>
+            <button type="button" class="btn btn-default" id="clearAllBtn" disabled><i class="fa fa-trash-o"></i> 清空队列</button>
         </div>
     </div>
-</div>
+</section>
 {/block}
 
 {block name="script"}
@@ -220,7 +109,10 @@ function addFiles(fileList, isFolderUpload) {
 
     for (var i = 0; i < fileList.length; i++) {
         var f = fileList[i];
-        var same = uploads.filter(function(u) { return u.name === f.name && u.size === f.size && u.status !== 'done'; });
+        var relativePath = f._uploadRelativePath || f.webkitRelativePath || '';
+        var same = uploads.filter(function(u) {
+            return u.name === f.name && u.size === f.size && u.webkitRelativePath === relativePath && u.status !== 'done';
+        });
         if (same.length > 0) { continue; }
         
         var uploadItem = {
@@ -231,7 +123,7 @@ function addFiles(fileList, isFolderUpload) {
             status: 'wait',        // wait/running/done/error
             progress: 0,
             errorMsg: '',
-            webkitRelativePath: f.webkitRelativePath || '',  // 保存相对路径
+            webkitRelativePath: relativePath,
             isFolderUpload: isFolder
         };
 
@@ -244,15 +136,15 @@ function readDirectoryEntry(entry, basePath, files, done) {
     var reader = entry.createReader();
     var folderPath = basePath || entry.name || '';
 
-    function handleResults(results) {
+    function handleResults(results, batchDone) {
         if (!results || results.length === 0) {
-            done();
+            batchDone();
             return;
         }
 
         var remaining = results.length;
         if (remaining === 0) {
-            done();
+            batchDone();
             return;
         }
 
@@ -265,19 +157,17 @@ function readDirectoryEntry(entry, basePath, files, done) {
                         var relative = file.webkitRelativePath
                             || (child.fullPath ? String(child.fullPath).replace(/^\/+/, '') : '')
                             || ((folderPath ? folderPath + '/' : '') + (file.name || child.name || ''));
-                        if (!file.webkitRelativePath) {
-                            file.webkitRelativePath = relative;
-                        }
+                        file._uploadRelativePath = relative;
                         files.push(file);
                     }
                     remaining--;
                     if (remaining === 0) {
-                        done();
+                        batchDone();
                     }
                 }, function() {
                     remaining--;
                     if (remaining === 0) {
-                        done();
+                        batchDone();
                     }
                 });
             } else if (child.isDirectory) {
@@ -285,23 +175,29 @@ function readDirectoryEntry(entry, basePath, files, done) {
                 readDirectoryEntry(child, childPath, files, function() {
                     remaining--;
                     if (remaining === 0) {
-                        done();
+                        batchDone();
                     }
                 });
             } else {
                 remaining--;
                 if (remaining === 0) {
-                    done();
+                    batchDone();
                 }
             }
         });
     }
 
-    reader.readEntries(function(results) {
-        handleResults(results);
-    }, function() {
-        done();
-    });
+    // Chromium 对大目录会分批返回条目，必须持续读取到空批次才算完成。
+    function readNextBatch() {
+        reader.readEntries(function(results) {
+            if (!results || results.length === 0) {
+                done();
+                return;
+            }
+            handleResults(results, readNextBatch);
+        }, done);
+    }
+    readNextBatch();
 }
 
 function collectDroppedFiles(dataTransfer, callback) {
@@ -338,9 +234,7 @@ function collectDroppedFiles(dataTransfer, callback) {
             if (entry.isFile) {
                 entry.file(function(file) {
                     if (file) {
-                        if (!file.webkitRelativePath) {
-                            file.webkitRelativePath = (entry.fullPath || '/' + file.name).replace(/^\/+/, '');
-                        }
+                        file._uploadRelativePath = file.webkitRelativePath || (entry.fullPath || '/' + file.name).replace(/^\/+/, '');
                         files.push(file);
                     }
                     pending--;
@@ -384,8 +278,16 @@ function collectDroppedFiles(dataTransfer, callback) {
 
 function renderQueue() {
     var $tb = $('#queueTable tbody').empty();
-    if (uploads.length === 0) { $('#queueTable').hide(); return; }
-    $('#queueTable').show();
+    var totalSize = uploads.reduce(function(sum, item) { return sum + item.size; }, 0);
+    $('#queueCount').text(uploads.length);
+    $('#queueSummary').text(uploads.length ? ('共 ' + uploads.length + ' 项 · ' + formatSize(totalSize)) : '尚未选择文件');
+    $('#queueEmpty').toggle(uploads.length === 0);
+    $('#queueTable').toggle(uploads.length > 0);
+    var hasRunning = uploads.some(function(item) { return item.status === 'running'; });
+    var hasRunnable = uploads.some(function(item) { return item.status === 'wait' || item.status === 'error'; });
+    $('#startAllBtn').prop('disabled', !hasRunnable || hasRunning);
+    $('#clearAllBtn').prop('disabled', uploads.length === 0 || hasRunning);
+    if (uploads.length === 0) { return; }
 
     uploads.forEach(function(u) {
         var statusText = {wait: '等待中', running: '上传中', done: '完成', error: '失败'}[u.status] || u.status;
@@ -398,7 +300,7 @@ function renderQueue() {
             + '<td>' + formatSize(u.size) + '</td>'
             + '<td><div class="upload-progress"><div class="progress-bar" role="progressbar" style="width:' + u.progress + '%">' + u.progress + '%</div></div></td>'
             + '<td class="' + color + '">' + statusText + (u.errorMsg ? '<br><small>' + $('<span>').text(u.errorMsg).html() + '</small>' : '') + '</td>'
-            + '<td>' + (u.status !== 'running' && u.status !== 'done' ? '<button class="btn btn-xs btn-danger" onclick="removeUpload(\'' + u.id + '\')"><i class="fa fa-times"></i></button>' : '') + '</td>'
+            + '<td>' + (u.status !== 'running' && u.status !== 'done' ? '<button type="button" class="btn btn-xs btn-default" data-remove-upload="' + u.id + '" aria-label="移除"><i class="fa fa-times"></i></button>' : '') + '</td>'
             + '</tr>';
         $tb.append(html);
     });
@@ -437,7 +339,12 @@ function startAll() {
 }
 
 function pumpQueue() {
-    while (running < MAX_CONCURRENT) {
+    var hasFolderItems = uploads.some(function(item) {
+        return item.webkitRelativePath && (item.status === 'wait' || item.status === 'running');
+    });
+    // 文件夹路径的创建按文件串行，避免同一路径的并发请求创建重复目录；分片仍保持并发。
+    var concurrencyLimit = hasFolderItems ? 1 : MAX_CONCURRENT;
+    while (running < concurrencyLimit) {
         var u = null;
         for (var i = 0; i < uploads.length; i++) {
             if (uploads[i].status === 'wait') { u = uploads[i]; break; }
@@ -678,10 +585,16 @@ $(function() {
     var $fileInput = $('#fileInput');
     var isTriggering = false;
     
-    // 点击上传区域（排除链接）
+    $('#fileSelectBtn').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        $fileInput.trigger('click');
+    });
+
+    // 点击上传区域（排除按钮）
     $zone.on('click', function(e) {
         if (isTriggering) return;
-        if (e.target.tagName === 'A' || $(e.target).closest('a').length) return;
+        if ($(e.target).closest('button, a, input').length) return;
         
         isTriggering = true;
         e.preventDefault();
@@ -694,6 +607,17 @@ $(function() {
         e.preventDefault();
         e.stopPropagation();
         selectFolder();
+    });
+
+    $zone.on('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            $fileInput.trigger('click');
+        }
+    });
+
+    $(document).on('click', '[data-remove-upload]', function() {
+        removeUpload($(this).data('remove-upload'));
     });
     
     // 文件选择变化
@@ -747,9 +671,11 @@ $(function() {
     // 按钮事件
     $('#startAllBtn').on('click', startAll);
     $('#clearAllBtn').on('click', function() {
-        uploads = uploads.filter(function(u) { return u.status === 'running' || u.status === 'done'; });
+        uploads = uploads.filter(function(u) { return u.status === 'running'; });
         renderQueue();
     });
+
+    renderQueue();
 });
 </script>
 {/block}

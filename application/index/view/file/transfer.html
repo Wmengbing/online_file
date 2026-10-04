@@ -1,0 +1,83 @@
+{extend name="common/layout" /}
+
+{block name="title"}{if $operation == 'copy'}复制文件{else}移动文件{/if} - 文件共享系统{/block}
+
+{block name="content"}
+<section class="transfer-page">
+    <header class="page-heading">
+        <div class="page-heading-main">
+            <span class="page-eyebrow">文件整理</span>
+            <h1 class="page-title">{if $operation == 'copy'}复制到文件夹{else}移动到文件夹{/if}</h1>
+            <p class="page-description">已选择 {$selected_files|count} 项，选择一个目标目录完成操作。</p>
+        </div>
+        <div class="page-heading-actions">
+            <a class="btn btn-default" href="{:url('index/file/index', ['parent_id' => $source_parent_id])}"><i class="fa fa-angle-left"></i> 返回文件列表</a>
+        </div>
+    </header>
+
+    <div class="transfer-layout">
+        <aside class="transfer-selection-card">
+            <span class="transfer-card-label">即将{if $operation == 'copy'}复制{else}移动{/if}</span>
+            <div class="transfer-selection-icon"><i class="fa {if $operation == 'copy'}fa-copy{else}fa-arrows{/if}"></i></div>
+            <strong>{$selected_files|count} 个项目</strong>
+            <p>{if $operation == 'copy'}文件夹会连同内部文件完整复制，副本不会携带原分享设置。{else}目录会保留原有层级，不能移动到自身或子目录中。{/if}</p>
+            <ul class="transfer-file-list">
+                {foreach $selected_files as $file}
+                <li><i class="fa {if $file.type == 2}fa-folder-o{else}fa-file-o{/if}"></i><span>{$file.name}</span></li>
+                {/foreach}
+            </ul>
+        </aside>
+
+        <div class="transfer-folder-card">
+            {if $operation == 'copy'}
+            <form method="post" action="{:url('index/file/copy')}" class="ajax-form">
+            {else}
+            <form method="post" action="{:url('index/file/move')}" class="ajax-form">
+            {/if}
+                {foreach $file_ids as $fid}<input type="hidden" name="file_ids[]" value="{$fid}">{/foreach}
+                <div class="transfer-folder-head">
+                    <div>
+                        <strong>选择目标目录</strong>
+                        <span>可输入名称快速筛选</span>
+                    </div>
+                    <label class="transfer-folder-search">
+                        <i class="fa fa-search"></i>
+                        <input type="search" class="form-control" placeholder="搜索文件夹" data-folder-filter>
+                    </label>
+                </div>
+
+                <div class="transfer-folder-picker" role="radiogroup" aria-label="目标目录">
+                    {if $root_target_id == 0}
+                    <label class="transfer-folder-option {if $source_parent_id == 0}is-selected{/if}" data-folder-option data-folder-name="根目录">
+                        <input type="radio" name="target_parent_id" value="0" {if $source_parent_id == 0}checked{/if}>
+                        <span class="transfer-folder-icon root"><i class="fa fa-hdd-o"></i></span>
+                        <span class="transfer-folder-name"><strong>根目录</strong><small>文件空间最上层</small></span>
+                        <i class="fa fa-check transfer-folder-check"></i>
+                    </label>
+                    {/if}
+                    {foreach $folders as $folder}
+                    <label class="transfer-folder-option {if $source_parent_id == $folder.id}is-selected{/if}" data-folder-option data-folder-name="{$folder.name}">
+                        <input type="radio" name="target_parent_id" value="{$folder.id}" {if $source_parent_id == $folder.id}checked{/if}>
+                        <span class="transfer-folder-icon"><i class="fa fa-folder"></i></span>
+                        <span class="transfer-folder-name">
+                            <strong>{if isset($folder.level) && $folder.level > 0}{for start="0" end="$folder.level"}　{/for}└ {/if}{$folder.name}</strong>
+                            <small>{if isset($folder.level) && $folder.level > 0}第 {$folder.level + 1} 级目录{else}一级目录{/if}</small>
+                        </span>
+                        <i class="fa fa-check transfer-folder-check"></i>
+                    </label>
+                    {/foreach}
+                    <div class="transfer-folder-empty" data-folder-empty><i class="fa fa-search"></i> 没有匹配的文件夹</div>
+                </div>
+
+                <div class="transfer-submit-bar">
+                    <span><i class="fa fa-info-circle"></i> 操作完成后将进入目标目录</span>
+                    <button type="submit" class="btn btn-primary" {if empty($selected_files)}disabled{/if}>
+                        <i class="fa {if $operation == 'copy'}fa-copy{else}fa-check{/if}"></i>
+                        确认{if $operation == 'copy'}复制{else}移动{/if}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</section>
+{/block}

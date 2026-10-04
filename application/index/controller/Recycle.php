@@ -33,6 +33,7 @@ class Recycle extends Base
      */
     public function restore()
     {
+        $this->requirePost();
         $this->checkLogin();
 
         $recycle_ids = input('recycle_ids/a', []);
@@ -151,6 +152,7 @@ class Recycle extends Base
      */
     public function permanentDelete()
     {
+        $this->requirePost();
         $this->checkLogin();
 
         $recycle_ids = input('recycle_ids/a', []);
@@ -184,6 +186,7 @@ class Recycle extends Base
      */
     public function clear()
     {
+        $this->requirePost();
         $this->checkLogin();
 
         $roots = Db::name('file_recycle')

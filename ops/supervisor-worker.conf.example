@@ -1,0 +1,17 @@
+; Optional ThinkPHP asynchronous task worker for BaoTa Supervisor.
+; Copy into Supervisor through the BaoTa panel, then append
+; "supervisorctl restart online_file_worker" to POST_SWITCH_COMMAND.
+
+[program:online_file_worker]
+process_name=%(program_name)s
+command=/www/server/php/74/bin/php /www/wwwroot/online_file/current/think task:worker
+directory=/www/wwwroot/online_file/current
+user=www
+autostart=true
+autorestart=true
+startretries=10
+stopwaitsecs=30
+redirect_stderr=true
+stdout_logfile=/www/wwwroot/online_file/shared/runtime/log/task-worker.log
+stdout_logfile_maxbytes=20MB
+stdout_logfile_backups=5

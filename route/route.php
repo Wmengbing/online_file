@@ -7,7 +7,7 @@ Route::get('/', 'index/file/index');
 // 认证模块
 Route::any('login', 'index/auth/login');
 Route::any('register', 'index/auth/register');
-Route::get('logout', 'index/auth/logout');
+Route::post('logout', 'index/auth/logout');
 Route::any('profile', 'index/auth/profile');
 Route::any('changePassword', 'index/auth/changePassword');
 
@@ -18,14 +18,16 @@ Route::any('file/upload', 'index/file/upload')->completeMatch();
 Route::get('file/download', 'index/file/download')->completeMatch();
 Route::any('file/rename', 'index/file/rename')->completeMatch();
 Route::any('file/move', 'index/file/move')->completeMatch();
+Route::any('file/copy', 'index/file/copy')->completeMatch();
 Route::post('file/delete', 'index/file/delete')->completeMatch();
 Route::get('file/detail', 'index/file/detail')->completeMatch();
 Route::get('file/preview', 'index/file/preview')->completeMatch();
+Route::get('file/previewPdf', 'index/file/previewPdf')->completeMatch();
 Route::get('file/raw', 'index/file/raw')->completeMatch();
-Route::any('file/downloadZip', 'index/file/downloadZip')->completeMatch();
+Route::get('file/downloadZip', 'index/file/downloadZip')->completeMatch();
 
 // 分片上传
-Route::any('file/chunkInit', 'index/file/chunkInit')->completeMatch();
+Route::post('file/chunkInit', 'index/file/chunkInit')->completeMatch();
 Route::post('file/chunkUpload', 'index/file/chunkUpload')->completeMatch();
 Route::get('file/chunkStatus', 'index/file/chunkStatus')->completeMatch();
 Route::post('file/chunkMerge', 'index/file/chunkMerge')->completeMatch();
@@ -65,3 +67,4 @@ Route::get('admin/storage', 'index/admin/storage');
 Route::post('admin/updateQuota', 'index/admin/updateQuota');
 Route::get('admin/tasks', 'index/admin/tasks');
 Route::any('admin/createTask', 'index/admin/createTask');
+Route::post('admin/cancelTask', 'index/admin/cancelTask');

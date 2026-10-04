@@ -21,22 +21,44 @@ class File extends Base
         $this->checkLogin();
         
         $parent_id = input('parent_id', 0);
-        $keyword = input('keyword', '');
+        $keyword = trim((string)input('keyword', ''));
+        $search_scope = strtolower((string)input('search_scope', 'global'));
+        $search_scope = $search_scope === 'current' ? 'current' : 'global';
+        $is_global_search = $keyword !== '' && $search_scope === 'global';
         $sort_by = input('sort_by', 'type');
         $sort_order = input('sort_order', 'desc');
+        $page = max(1, (int)input('page', 1));
+        $page_size = 50;
 
         $is_admin = $this->checkAdmin(false);
 
         // 确保用户有个人文件夹
         $this->ensurePersonalFolder();
 
-        $query = Db::name('files')
-            ->where('parent_id', $parent_id)
-            ->where('status', 1);
-        $this->applyAccessFilter($query);
+        $query = Db::name('files')->where('status', 1);
+        if (!$is_global_search) {
+            $query->where('parent_id', $parent_id);
+        }
+
+        // 共享目录的访问权限会继承给子级。进入共享目录后，先确认父级权限，
+        // 再直接展示该目录的孩子，避免通用角色过滤把共享内容误删掉。
+        $internal_share_permission = 0;
+        if (!$is_global_search && $parent_id > 0) {
+            $share_parent = Db::name('files')
+                ->where('id', $parent_id)
+                ->where('type', 2)
+                ->where('status', 1)
+                ->find();
+            if ($share_parent) {
+                $internal_share_permission = $this->getInternalSharePermission($share_parent);
+            }
+        }
+        if ($internal_share_permission <= 0) {
+            $this->applyAccessFilter($query, $is_global_search);
+        }
 
         // 非管理员：显示角色文件夹和个人文件夹
-        if (!$is_admin) {
+        if (!$is_admin && !$is_global_search) {
             $role_folder_ids = $this->getRoleFolderIds();
             $personal_folder_id = $this->getPersonalFolderId();
 
@@ -54,7 +76,7 @@ class File extends Base
                 // 子目录：检查是否在角色文件夹树或个人文件夹树下
                 $in_role_tree = $this->isInRoleFolderTree($parent_id);
                 $in_personal_tree = $this->isInPersonalFolderTree($parent_id);
-                if (!$in_role_tree && !$in_personal_tree) {
+                if (!$in_role_tree && !$in_personal_tree && $internal_share_permission <= 0) {
                     $query->where('1=0');
                 }
             }
@@ -70,6 +92,11 @@ class File extends Base
             $sort_by = 'type';
         }
         $sort_order = strtolower($sort_order) === 'asc' ? 'asc' : 'desc';
+        $total = (int)(clone $query)->count();
+        $total_pages = max(1, (int)ceil($total / $page_size));
+        if ($page > $total_pages) {
+            $page = $total_pages;
+        }
 
         // 默认先按类型排序(文件夹在前)，再按指定字段排序
         if ($sort_by === 'type') {
@@ -78,7 +105,7 @@ class File extends Base
             $query->order('type', 'desc')->order($sort_by, $sort_order);
         }
 
-        $files = $query->select();
+        $files = $query->page($page, $page_size)->select();
         
         // 获取所有文件上传者的用户ID
         $user_ids = array_unique(array_column($files, 'user_id'));
@@ -96,6 +123,12 @@ class File extends Base
             $file['can_manage'] = $this->canManageFile($file);
             // 添加上传者用户名
             $file['uploader_username'] = isset($users[$file['user_id']]) ? $users[$file['user_id']] : '未知用户';
+            if ($is_global_search) {
+                $location_breadcrumbs = $this->getBreadcrumbs((int)$file['parent_id']);
+                $location_names = array_column($location_breadcrumbs, 'name');
+                $file['location_text'] = empty($location_names) ? '根目录' : implode(' / ', $location_names);
+                $file['location_url'] = url('index/file/index', ['parent_id' => (int)$file['parent_id']]);
+            }
         }
         
         $parent = null;
@@ -116,8 +149,14 @@ class File extends Base
         $this->assign('parent', $parent);
         $this->assign('breadcrumbs', $breadcrumbs);
         $this->assign('keyword', $keyword);
+        $this->assign('search_scope', $search_scope);
+        $this->assign('is_global_search', $is_global_search);
         $this->assign('sort_by', $sort_by);
         $this->assign('sort_order', $sort_order);
+        $this->assign('page', $page);
+        $this->assign('page_size', $page_size);
+        $this->assign('total', $total);
+        $this->assign('total_pages', $total_pages);
         $this->assign('max_upload_text', format_file_size((int)app_cfg('max_file_size', 0)));
         $this->assign('default_parent_id', $this->getDefaultUploadParentId());
         $this->assign('is_admin', $is_admin);
@@ -187,7 +226,7 @@ class File extends Base
                 return $this->error('请选择上传文件');
             }
             
-            $parent_id = input('parent_id', 0);
+            $parent_id = $this->resolveWritableParentId((int)input('parent_id', 0));
             $relative_path = input('relative_path', '');
             
             $file_info = $this->handleUpload($file, $parent_id, $relative_path);
@@ -200,7 +239,7 @@ class File extends Base
             return $this->success('上传成功');
         }
         
-        $parent_id = input('parent_id', 0);
+        $parent_id = $this->resolveWritableParentId((int)input('parent_id', 0));
         $this->assign('parent_id', $parent_id);
         $this->assign('chunk_size', (int)app_cfg('chunk_size', 5242880));
         $this->assign('chunk_size_text', format_file_size((int)app_cfg('chunk_size', 5242880)));
@@ -279,6 +318,10 @@ class File extends Base
 
         // 如果是自己创建的文件夹，可以访问
         if ((int)$folder['user_id'] === (int)$this->user_id) {
+            return true;
+        }
+
+        if ($this->getInternalSharePermission($folder) >= 2) {
             return true;
         }
 
@@ -520,6 +563,17 @@ class File extends Base
         return 0;
     }
 
+    /** 非管理员写入根目录时落到个人/角色默认目录，避免创建后在根页不可见。 */
+    private function resolveWritableParentId($parent_id)
+    {
+        $parent_id = max(0, (int)$parent_id);
+        if ($parent_id === 0 && !$this->checkAdmin(false)) {
+            $default_parent_id = (int)$this->getDefaultUploadParentId();
+            return $default_parent_id > 0 ? $default_parent_id : (int)$this->ensurePersonalFolder();
+        }
+        return $parent_id;
+    }
+
     private function canAccessFile($file)
     {
         if (empty($file)) {
@@ -536,6 +590,10 @@ class File extends Base
         }
 
         if ((int)$file['user_id'] === (int)$this->user_id) {
+            return true;
+        }
+
+        if ($this->getInternalSharePermission($file) >= 1) {
             return true;
         }
 
@@ -568,7 +626,7 @@ class File extends Base
         return !empty($shared_roles);
     }
 
-    private function applyAccessFilter($query)
+    private function applyAccessFilter($query, $include_internal_shares = false)
     {
         // 超级管理员可以看到所有文件，但要排除其他人的个人文件夹
         if ($this->checkAdmin(false)) {
@@ -589,6 +647,7 @@ class File extends Base
         // 获取角色文件夹ID和个人文件夹ID
         $role_folder_ids = $this->getRoleFolderIds();
         $personal_folder_id = $this->getPersonalFolderId();
+        $internal_shared_ids = $include_internal_shares ? $this->getInternalSharedTreeIds() : [];
         
         // 允许用户看到：
         // 1) 自己/同组成员的文件
@@ -596,7 +655,7 @@ class File extends Base
         // 3) 个人文件夹
         // 4) 角色文件夹树下的所有文件和文件夹（核心：让角色成员能看到角色文件夹下的所有内容）
         
-        return $query->where(function($q) use ($user_ids, $role_folder_ids, $personal_folder_id) {
+        return $query->where(function($q) use ($user_ids, $role_folder_ids, $personal_folder_id, $internal_shared_ids) {
             // 条件1：同组成员的文件
             $q->where('user_id', 'in', $user_ids);
             
@@ -608,6 +667,11 @@ class File extends Base
             // 条件3：个人文件夹
             if ($personal_folder_id) {
                 $q->whereOr('id', '=', $personal_folder_id);
+            }
+
+            // 全局搜索时同时覆盖“共享给我”的根节点及其完整子树。
+            if (!empty($internal_shared_ids)) {
+                $q->whereOr('id', 'in', $internal_shared_ids);
             }
             
             // 条件4：在角色文件夹树下的所有文件和文件夹
@@ -626,6 +690,43 @@ class File extends Base
         });
     }
 
+    private function getInternalSharedTreeIds()
+    {
+        $root_ids = Db::name('file_internal_shares')
+            ->where('shared_user_id', $this->user_id)
+            ->column('file_id');
+        $root_ids = array_values(array_unique(array_filter(array_map('intval', (array)$root_ids))));
+        if (empty($root_ids)) {
+            return [];
+        }
+
+        $all_ids = $root_ids;
+        $folder_queue = Db::name('files')
+            ->where('id', 'in', $root_ids)
+            ->where('type', 2)
+            ->where('status', 1)
+            ->column('id');
+        $guard = 0;
+
+        while (!empty($folder_queue) && $guard++ < 1000) {
+            $batch = array_splice($folder_queue, 0, 100);
+            $children = Db::name('files')
+                ->where('parent_id', 'in', $batch)
+                ->where('status', 1)
+                ->field('id,type')
+                ->select();
+            foreach ($children as $child) {
+                $child_id = (int)$child['id'];
+                $all_ids[] = $child_id;
+                if ((int)$child['type'] === 2) {
+                    $folder_queue[] = $child_id;
+                }
+            }
+        }
+
+        return array_values(array_unique($all_ids));
+    }
+
     private function handleUpload($file, $parent_id = 0, $relative_path = '')
     {
         if ($parent_id > 0 && !$this->validateFolderOwner($parent_id)) {
@@ -636,6 +737,9 @@ class File extends Base
         $actual_parent_id = $parent_id;
         if (!empty($relative_path)) {
             $path_parts = $this->parseRelativePath($relative_path);
+            if (isset($path_parts['error'])) {
+                return ['error' => $path_parts['error']];
+            }
             if ($path_parts['folder_path']) {
                 $actual_parent_id = $this->ensureFolderPathExists($path_parts['folder_path'], $parent_id);
             }
@@ -645,8 +749,20 @@ class File extends Base
             $file_name = isset($file_info['name']) ? $file_info['name'] : $file->getFilename();
         }
 
+        if ($file_name === '' || mb_strlen($file_name) > 255) {
+            return ['error' => '文件名不合法'];
+        }
+        if (preg_match('/[\/\\:\*\?"<>\|]/', $file_name)) {
+            return ['error' => '文件名包含非法字符'];
+        }
+
         $file_size = $file->getSize();
         $extension = get_file_extension($file_name);
+
+        $max_file_size = (int)app_cfg('max_file_size', 1073741824);
+        if ($file_size <= 0 || $file_size > $max_file_size) {
+            return ['error' => '文件大小超出限制'];
+        }
         
         if (!is_allowed_extension($extension)) {
             return ['error' => '不允许上传此类型的文件'];
@@ -737,6 +853,17 @@ class File extends Base
         
         // 分割路径
         $parts = explode('/', $relative_path);
+        if (count($parts) > 21) {
+            return ['error' => '文件夹层级不能超过20层'];
+        }
+        foreach ($parts as $part) {
+            if ($part === '' || $part === '.' || $part === '..' || mb_strlen($part) > 255) {
+                return ['error' => '文件夹路径不合法'];
+            }
+            if (preg_match('/[\\:\*\?"<>\|]/', $part)) {
+                return ['error' => '文件夹名称包含非法字符'];
+            }
+        }
         $file_name = array_pop($parts);
         $folder_path = implode('/', $parts);
         
@@ -774,7 +901,6 @@ class File extends Base
                 ->where('parent_id', $current_parent_id)
                 ->where('name', $folder_name)
                 ->where('type', 2)
-                ->where('user_id', $this->user_id)
                 ->where('status', 1)
                 ->find();
             
@@ -828,9 +954,7 @@ class File extends Base
         return send_file_stream($full_path, $file['name']);
     }
 
-    /**
-     * 在线预览(图片/文本/PDF/音视频)
-     */
+    /** 在线预览：浏览器原生类型 + Office 转 PDF + 客户端降级解析。 */
     public function preview()
     {
         $this->checkLogin();
@@ -849,10 +973,31 @@ class File extends Base
 
         $file['size_text'] = format_file_size($file['size']);
         $p_type = preview_type_of($file['extension']);
+        $original_preview_type = $p_type;
+        $preview_notice = '';
+        $preview_mode = 'native';
+        $raw_url = url('index/file/raw', ['file_id' => $file_id]);
+
+        if (in_array($p_type, ['word', 'excel', 'ppt'], true)) {
+            $conversion_reason = '';
+            $converted_path = $this->getConvertedOfficePreviewPath($file, $conversion_reason);
+            if ($converted_path) {
+                $p_type = 'pdf';
+                $preview_mode = 'converted';
+                $raw_url = url('index/file/previewPdf', ['file_id' => $file_id]);
+                $preview_notice = '文档已在服务器转换为 PDF，版式与原文件可能存在少量差异。';
+            } else {
+                $preview_mode = 'browser-office';
+                $preview_notice = $conversion_reason;
+            }
+        }
 
         $this->assign('file', $file);
         $this->assign('p_type', $p_type);
-        $this->assign('raw_url', url('index/file/raw', ['file_id' => $file_id]));
+        $this->assign('original_preview_type', $original_preview_type);
+        $this->assign('preview_mode', $preview_mode);
+        $this->assign('preview_notice', $preview_notice);
+        $this->assign('raw_url', $raw_url);
         $this->assign('download_url', url('index/file/download', ['file_id' => $file_id]));
 
         // 文本类:读取内容展示
@@ -882,6 +1027,179 @@ class File extends Base
         }
 
         return $this->fetch();
+    }
+
+    /** 输出缓存后的 Office PDF 预览。 */
+    public function previewPdf()
+    {
+        $this->checkLogin();
+        $file_id = (int)input('file_id', 0);
+        $file = Db::name('files')
+            ->where('id', $file_id)
+            ->where('type', 1)
+            ->where('status', 1)
+            ->find();
+
+        if (!$file || !$this->canAccessFile($file)) {
+            $this->error('文件不存在');
+        }
+
+        $reason = '';
+        $pdf_path = $this->getConvertedOfficePreviewPath($file, $reason);
+        if (!$pdf_path) {
+            $this->error($reason ?: '文档转换失败');
+        }
+
+        $pdf_name = pathinfo($file['name'], PATHINFO_FILENAME) . '.pdf';
+        return send_file_stream($pdf_path, $pdf_name, true, 'application/pdf');
+    }
+
+    private function getConvertedOfficePreviewPath($file, &$reason = '')
+    {
+        $extension = strtolower((string)$file['extension']);
+        if (!in_array($extension, ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'], true)) {
+            $reason = '该文件不需要 Office 转换';
+            return null;
+        }
+
+        $source_path = get_file_full_path($file['path']);
+        if (!is_file($source_path)) {
+            $reason = '文件物理内容不存在';
+            return null;
+        }
+        if ((int)$file['size'] > (int)app_cfg('office_preview_max_size', 209715200)) {
+            $reason = '文件超过在线转换大小限制，请下载后查看。';
+            return null;
+        }
+
+        $converter = $this->locateOfficeConverter();
+        if (!$converter) {
+            $reason = '服务器未配置 Office 转换组件，将尝试浏览器兼容预览；旧版格式可能需要下载后打开。';
+            return null;
+        }
+        if (!$this->isFunctionEnabled('proc_open')) {
+            $reason = '服务器已禁用文档转换进程，将尝试浏览器兼容预览。';
+            return null;
+        }
+
+        $cache_dir = Env::get('root_path') . 'runtime' . DIRECTORY_SEPARATOR . 'preview_cache';
+        create_directory($cache_dir);
+        $cache_key = sha1(($file['hash'] ?: $file['path']) . '|' . $file['size'] . '|' . $file['updated_at']);
+        $pdf_path = $cache_dir . DIRECTORY_SEPARATOR . $cache_key . '.pdf';
+        if (is_file($pdf_path) && filesize($pdf_path) > 0) {
+            return $pdf_path;
+        }
+
+        $lock = @fopen($pdf_path . '.lock', 'c');
+        if (!$lock || !flock($lock, LOCK_EX)) {
+            if ($lock) fclose($lock);
+            $reason = '暂时无法创建预览缓存，请稍后重试。';
+            return null;
+        }
+
+        if (is_file($pdf_path) && filesize($pdf_path) > 0) {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+            return $pdf_path;
+        }
+
+        $temp_input = $cache_dir . DIRECTORY_SEPARATOR . $cache_key . '.' . $extension;
+        if (!@copy($source_path, $temp_input)) {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+            $reason = '无法读取文档内容进行转换。';
+            return null;
+        }
+
+        $command = [
+            $converter,
+            '--headless',
+            '--nologo',
+            '--nodefault',
+            '--nofirststartwizard',
+            '--convert-to',
+            'pdf',
+            '--outdir',
+            $cache_dir,
+            $temp_input,
+        ];
+        $descriptor_spec = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+        $pipes = [];
+        $process = @proc_open($command, $descriptor_spec, $pipes, $cache_dir, null, ['bypass_shell' => true]);
+        $timed_out = false;
+
+        if (is_resource($process)) {
+            fclose($pipes[0]);
+            stream_set_blocking($pipes[1], false);
+            stream_set_blocking($pipes[2], false);
+            $started_at = microtime(true);
+            do {
+                $status = proc_get_status($process);
+                if (!$status['running']) break;
+                if (microtime(true) - $started_at > 90) {
+                    $timed_out = true;
+                    proc_terminate($process);
+                    break;
+                }
+                usleep(100000);
+            } while (true);
+            stream_get_contents($pipes[1]);
+            stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            proc_close($process);
+        }
+
+        @unlink($temp_input);
+        flock($lock, LOCK_UN);
+        fclose($lock);
+
+        if (is_file($pdf_path) && filesize($pdf_path) > 0) {
+            return $pdf_path;
+        }
+
+        $reason = $timed_out
+            ? '文档转换超时，请下载后查看。'
+            : '文档转换失败，将尝试浏览器兼容预览。';
+        return null;
+    }
+
+    private function locateOfficeConverter()
+    {
+        $configured = trim((string)app_cfg('office_converter', ''));
+        $candidates = array_filter([
+            $configured,
+            'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
+            'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe',
+            '/usr/bin/libreoffice',
+            '/usr/bin/soffice',
+            '/usr/local/bin/libreoffice',
+        ]);
+
+        $path_env = (string)getenv('PATH');
+        foreach (explode(PATH_SEPARATOR, $path_env) as $path_dir) {
+            if ($path_dir === '') continue;
+            $candidates[] = rtrim($path_dir, '/\\') . DIRECTORY_SEPARATOR . (DIRECTORY_SEPARATOR === '\\' ? 'soffice.exe' : 'soffice');
+            $candidates[] = rtrim($path_dir, '/\\') . DIRECTORY_SEPARATOR . 'libreoffice';
+        }
+
+        foreach (array_unique($candidates) as $candidate) {
+            if (is_file($candidate) && is_readable($candidate)) {
+                return $candidate;
+            }
+        }
+        return null;
+    }
+
+    private function isFunctionEnabled($name)
+    {
+        if (!function_exists($name)) return false;
+        $disabled = array_map('trim', explode(',', (string)ini_get('disable_functions')));
+        return !in_array($name, $disabled, true);
     }
 
     /**
@@ -1055,7 +1373,7 @@ class File extends Base
         
         if ($this->request->isPost()) {
             $file_ids = input('file_ids/a', []);
-            $target_parent_id = input('target_parent_id', 0);
+            $target_parent_id = $this->resolveWritableParentId((int)input('target_parent_id', 0));
             
             if (empty($file_ids)) {
                 return $this->error('请选择要移动的文件');
@@ -1065,7 +1383,10 @@ class File extends Base
                 return $this->error('目标目录不存在');
             }
 
-            $file_ids = array_unique(array_map('intval', $file_ids));
+            $file_ids = array_values(array_unique(array_filter(array_map('intval', $file_ids))));
+            if (count($file_ids) > 200) {
+                return $this->error('单次最多移动200项');
+            }
 
             $moving_files = Db::name('files')
                 ->where('id', 'in', $file_ids)
@@ -1074,6 +1395,11 @@ class File extends Base
             $moving_files = array_values(array_filter($moving_files, function ($item) {
                 return $this->canAccessFile($item) && $this->canManageFile($item);
             }));
+            $moving_files = $this->removeNestedSelections($moving_files);
+
+            if (empty($moving_files)) {
+                return $this->error('没有可移动的文件或无权限操作');
+            }
             $moving_folders = array_values(array_map(function ($item) {
                 return (int)$item['id'];
             }, array_filter($moving_files, function ($item) {
@@ -1090,41 +1416,287 @@ class File extends Base
                 }
             }
 
+            $moving_names = [];
+            foreach ($moving_files as $item) {
+                $name_key = mb_strtolower($item['name'], 'UTF-8');
+                if (isset($moving_names[$name_key])) {
+                    return $this->error('所选项目中存在同名项：' . $item['name']);
+                }
+                $moving_names[$name_key] = true;
+                if ((int)$item['parent_id'] === (int)$target_parent_id) {
+                    continue;
+                }
+                $name_exists = Db::name('files')
+                    ->where('parent_id', $target_parent_id)
+                    ->where('name', $item['name'])
+                    ->where('status', 1)
+                    ->where('id', 'not in', $file_ids)
+                    ->find();
+                if ($name_exists) {
+                    return $this->error('目标目录已存在同名项目：' . $item['name']);
+                }
+            }
+
             $movable_ids = array_map(function ($item) {
                 return (int)$item['id'];
             }, $moving_files);
 
-            Db::name('files')
-                ->where('id', 'in', $movable_ids)
-                ->where('status', 1)
-                ->update(['parent_id' => $target_parent_id]);
+            Db::startTrans();
+            try {
+                Db::name('files')
+                    ->where('id', 'in', $movable_ids)
+                    ->where('status', 1)
+                    ->update(['parent_id' => $target_parent_id]);
+                Db::commit();
+            } catch (\Exception $e) {
+                Db::rollback();
+                return $this->error('移动失败，请稍后重试');
+            }
 
             log_operation('file', 'move', '移动文件:' . count($movable_ids) . '个');
 
             // 跳转回文件列表
-            return $this->success('移动成功', url('index/file/index'));
+            return $this->success('移动成功', url('index/file/index', ['parent_id' => $target_parent_id]));
         }
         
         $file_ids = input('file_ids/a', []);
-        $this->assign('file_ids', $file_ids);
-        
-        // 获取可访问的文件夹，排除其他人的个人文件夹
+        return $this->renderTransferPage('move', $file_ids);
+    }
+
+    /**
+     * 复制文件或整个目录树。物理文件继续复用去重路径，逻辑容量按副本大小计入当前用户。
+     */
+    public function copy()
+    {
+        $this->checkLogin();
+
+        if (!$this->request->isPost()) {
+            return $this->renderTransferPage('copy', input('file_ids/a', []));
+        }
+
+        $file_ids = array_values(array_unique(array_filter(array_map('intval', input('file_ids/a', [])))));
+        $target_parent_id = $this->resolveWritableParentId((int)input('target_parent_id', 0));
+
+        if (empty($file_ids)) {
+            return $this->error('请选择要复制的文件');
+        }
+        if (count($file_ids) > 200) {
+            return $this->error('单次最多复制200项');
+        }
+        if ($target_parent_id > 0 && !$this->validateFolderOwner($target_parent_id)) {
+            return $this->error('目标目录不存在或不可写');
+        }
+
+        $source_files = Db::name('files')
+            ->where('id', 'in', $file_ids)
+            ->where('status', 1)
+            ->select();
+        $source_files = array_values(array_filter($source_files, function ($item) {
+            return $this->canAccessFile($item);
+        }));
+        $source_files = $this->removeNestedSelections($source_files);
+
+        if (empty($source_files)) {
+            return $this->error('没有可复制的文件或无权限访问');
+        }
+
+        foreach ($source_files as $item) {
+            if ((int)$item['type'] === 2 && $this->isDescendant((int)$item['id'], $target_parent_id)) {
+                return $this->error('不能将目录复制到自身或其子目录中');
+            }
+        }
+
+        $tree = $this->collectCopyTree($source_files);
+        if (isset($tree['error'])) {
+            return $this->error($tree['error']);
+        }
+
+        $user = Db::name('users')->where('id', $this->user_id)->find();
+        if (!$user || (int)$user['storage_used'] + $tree['size'] > (int)$user['storage_quota']) {
+            return $this->error('存储空间不足，无法完成复制');
+        }
+
+        Db::startTrans();
+        try {
+            foreach ($source_files as $source) {
+                $this->copyTreeNode($source, $target_parent_id, $tree['children'], true);
+            }
+            if ($tree['size'] > 0) {
+                Db::name('users')->where('id', $this->user_id)->inc('storage_used', $tree['size'])->update();
+            }
+            Db::commit();
+        } catch (\Exception $e) {
+            Db::rollback();
+            return $this->error('复制失败，请稍后重试');
+        }
+
+        log_operation('file', 'copy', '复制文件:' . count($source_files) . '项');
+        return $this->success('复制成功', url('index/file/index', ['parent_id' => $target_parent_id]));
+    }
+
+    private function renderTransferPage($operation, $file_ids)
+    {
+        $file_ids = array_values(array_unique(array_filter(array_map('intval', (array)$file_ids))));
+        $selected_files = [];
+        if (!empty($file_ids)) {
+            $selected_files = Db::name('files')
+                ->where('id', 'in', $file_ids)
+                ->where('status', 1)
+                ->select();
+            $selected_files = array_values(array_filter($selected_files, function ($item) use ($operation) {
+                return $this->canAccessFile($item) && ($operation === 'copy' || $this->canManageFile($item));
+            }));
+            $selected_files = $this->removeNestedSelections($selected_files);
+        }
+
         $folders = Db::name('files')
             ->where('type', 2)
             ->where('status', 1)
             ->where(function($q) {
-                // 排除其他人的个人文件夹
                 $q->where('is_personal', '<>', 1)
                   ->whereOr('user_id', '=', $this->user_id);
             });
         $this->applyAccessFilter($folders);
         $folders = $folders->order('parent_id', 'asc')->order('id', 'asc')->select();
-        
-        // 构建层级结构的文件夹列表
-        $folder_tree = $this->buildFolderTree($folders);
-        
-        $this->assign('folders', $folder_tree);
-        return $this->fetch();
+
+        $source_folder_ids = [];
+        foreach ($selected_files as $item) {
+            if ((int)$item['type'] === 2) {
+                $source_folder_ids[] = (int)$item['id'];
+            }
+        }
+        if (!empty($source_folder_ids)) {
+            $folders = array_values(array_filter($folders, function ($folder) use ($source_folder_ids) {
+                foreach ($source_folder_ids as $source_id) {
+                    if ((int)$folder['id'] === $source_id || $this->isDescendant($source_id, (int)$folder['id'])) {
+                        return false;
+                    }
+                }
+                return true;
+            }));
+        }
+
+        $root_target_id = $this->checkAdmin(false) ? 0 : (int)$this->getDefaultUploadParentId();
+        $this->assign('file_ids', array_column($selected_files, 'id'));
+        $this->assign('selected_files', $selected_files);
+        $this->assign('folders', $this->buildFolderTree($folders));
+        $this->assign('operation', $operation);
+        $this->assign('source_parent_id', (int)input('source_parent_id', 0));
+        $this->assign('root_target_id', $root_target_id);
+        $this->assign('root_target_name', $root_target_id > 0 ? '我的文件' : '根目录');
+        return $this->fetch('transfer');
+    }
+
+    /** 去掉同时选中的子孙节点，避免同一棵目录树被重复移动或复制。 */
+    private function removeNestedSelections($files)
+    {
+        $selected = [];
+        foreach ($files as $item) {
+            $selected[(int)$item['id']] = true;
+        }
+
+        return array_values(array_filter($files, function ($item) use ($selected) {
+            $parent_id = (int)$item['parent_id'];
+            $guard = 0;
+            while ($parent_id > 0 && $guard++ < 100) {
+                if (isset($selected[$parent_id])) {
+                    return false;
+                }
+                $parent_id = (int)Db::name('files')->where('id', $parent_id)->value('parent_id');
+            }
+            return true;
+        }));
+    }
+
+    private function collectCopyTree($roots)
+    {
+        $children = [];
+        $queue = [];
+        $size = 0;
+        $count = 0;
+
+        foreach ($roots as $root) {
+            $queue[] = $root;
+        }
+
+        while (!empty($queue)) {
+            $node = array_shift($queue);
+            $count++;
+            if ($count > 5000) {
+                return ['error' => '目录内容超过5000项，请分批复制'];
+            }
+            if ((int)$node['type'] === 1) {
+                $size += (int)$node['size'];
+                continue;
+            }
+
+            $rows = Db::name('files')
+                ->where('parent_id', $node['id'])
+                ->where('status', 1)
+                ->order('id', 'asc')
+                ->select();
+            $children[(int)$node['id']] = $rows;
+            foreach ($rows as $row) {
+                $queue[] = $row;
+            }
+        }
+
+        return ['children' => $children, 'size' => $size, 'count' => $count];
+    }
+
+    private function copyTreeNode($node, $target_parent_id, $children, $is_root = false)
+    {
+        $name = $is_root ? $this->makeUniqueCopyName($node['name'], $target_parent_id, (int)$node['type']) : $node['name'];
+        $new_id = Db::name('files')->insertGetId([
+            'user_id'       => $this->user_id,
+            'parent_id'     => $target_parent_id,
+            'name'          => $name,
+            'type'          => (int)$node['type'],
+            'mime_type'     => $node['mime_type'],
+            'size'          => (int)$node['size'],
+            'path'          => $node['path'],
+            'extension'     => $node['extension'],
+            'hash'          => $node['hash'],
+            'is_public'     => 0,
+            'download_count'=> 0,
+            'status'        => 1,
+            'is_personal'   => 0,
+        ]);
+
+        if ((int)$node['type'] === 2 && isset($children[(int)$node['id']])) {
+            foreach ($children[(int)$node['id']] as $child) {
+                $this->copyTreeNode($child, $new_id, $children, false);
+            }
+        }
+        return $new_id;
+    }
+
+    private function makeUniqueCopyName($name, $parent_id, $type)
+    {
+        $exists = Db::name('files')
+            ->where('parent_id', $parent_id)
+            ->where('name', $name)
+            ->where('status', 1)
+            ->find();
+        if (!$exists) {
+            return $name;
+        }
+
+        $extension = $type === 1 ? pathinfo($name, PATHINFO_EXTENSION) : '';
+        $base = ($extension !== '') ? substr($name, 0, -(strlen($extension) + 1)) : $name;
+        for ($i = 1; $i <= 999; $i++) {
+            $suffix = $i === 1 ? ' - 副本' : ' - 副本 (' . $i . ')';
+            $candidate = $base . $suffix . ($extension !== '' ? '.' . $extension : '');
+            $taken = Db::name('files')
+                ->where('parent_id', $parent_id)
+                ->where('name', $candidate)
+                ->where('status', 1)
+                ->find();
+            if (!$taken) {
+                return $candidate;
+            }
+        }
+        throw new \RuntimeException('无法生成副本名称');
     }
 
     /**
@@ -1181,6 +1753,7 @@ class File extends Base
 
     public function delete()
     {
+        $this->requirePost();
         $this->checkLogin();
         
         if ($this->request->isPost()) {
@@ -1211,15 +1784,22 @@ class File extends Base
                 $this->collectTree($file, $this->user_id, $recycle_data, $ids_to_hide);
             }
 
-            if (!empty($ids_to_hide)) {
-                Db::name('files')
-                    ->where('id', 'in', array_unique($ids_to_hide))
-                    ->where('status', 1)
-                    ->update(['status' => 0]);
-            }
+            Db::startTrans();
+            try {
+                if (!empty($ids_to_hide)) {
+                    Db::name('files')
+                        ->where('id', 'in', array_unique($ids_to_hide))
+                        ->where('status', 1)
+                        ->update(['status' => 0]);
+                }
 
-            if (!empty($recycle_data)) {
-                Db::name('file_recycle')->insertAll($recycle_data);
+                if (!empty($recycle_data)) {
+                    Db::name('file_recycle')->insertAll($recycle_data);
+                }
+                Db::commit();
+            } catch (\Exception $e) {
+                Db::rollback();
+                return $this->error('删除失败，请稍后重试');
             }
 
             log_operation('file', 'delete', '删除文件:' . count($files) . '个');
@@ -1288,13 +1868,14 @@ class File extends Base
      */
     public function chunkInit()
     {
+        $this->requirePost();
         if (!$this->user_id) {
             return json(['code' => 401, 'msg' => '请先登录']);
         }
 
         $file_name  = trim((string)input('file_name', ''));
         $total_size = (int)input('total_size', 0);
-        $parent_id  = (int)input('parent_id', 0);
+        $parent_id  = $this->resolveWritableParentId((int)input('parent_id', 0));
         $relative_path = trim((string)input('relative_path', ''));
 
         // 处理文件夹上传的相对路径
@@ -1302,6 +1883,9 @@ class File extends Base
         $actual_file_name = $file_name;
         if (!empty($relative_path)) {
             $path_parts = $this->parseRelativePath($relative_path);
+            if (isset($path_parts['error'])) {
+                return json(['code' => 400, 'msg' => $path_parts['error']]);
+            }
             if ($path_parts['folder_path']) {
                 $actual_parent_id = $this->ensureFolderPathExists($path_parts['folder_path'], $parent_id);
             }
@@ -1359,6 +1943,7 @@ class File extends Base
      */
     public function chunkUpload()
     {
+        $this->requirePost();
         if (!$this->user_id) {
             return json(['code' => 401, 'msg' => '请先登录']);
         }
@@ -1474,13 +2059,14 @@ class File extends Base
      */
     public function chunkMerge()
     {
+        $this->requirePost();
         if (!$this->user_id) {
             return json(['code' => 401, 'msg' => '请先登录']);
         }
 
         $upload_id    = (string)input('upload_id', '');
         $file_name    = trim((string)input('file_name', ''));
-        $parent_id    = (int)input('parent_id', 0);
+        $parent_id    = $this->resolveWritableParentId((int)input('parent_id', 0));
         $total_chunks = (int)input('total_chunks', 0);
         $total_size   = (int)input('total_size', 0);
         $relative_path = trim((string)input('relative_path', ''));
@@ -1497,6 +2083,9 @@ class File extends Base
         $actual_file_name = $file_name;
         if (!empty($relative_path)) {
             $path_parts = $this->parseRelativePath($relative_path);
+            if (isset($path_parts['error'])) {
+                return json(['code' => 400, 'msg' => $path_parts['error']]);
+            }
             if ($path_parts['folder_path']) {
                 $actual_parent_id = $this->ensureFolderPathExists($path_parts['folder_path'], $parent_id);
             }
@@ -1719,6 +2308,7 @@ class File extends Base
      */
     public function deleteUploadTask()
     {
+        $this->requirePost();
         $this->checkLogin();
         
         $task_id = input('task_id', 0);

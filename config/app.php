@@ -11,7 +11,7 @@ return [
     // 应用地址
     'app_host'               => '',
     // 应用调试模式(生产环境在项目根 .env 中设置 APP_DEBUG = false 关闭)
-    'app_debug'              => env('APP_DEBUG', true),
+    'app_debug'              => env('APP_DEBUG', false),
     // 应用Trace
     'app_trace'              => false,
     // 是否支持多模块
@@ -51,6 +51,9 @@ return [
     'chunk_size'             => 5242880,
     'max_file_size'          => 1073741824,
     'allowed_extensions'     => [],
+    // 可选：LibreOffice/soffice 可执行文件路径，用于将 Office 文档转换为 PDF 预览。
+    'office_converter'       => env('OFFICE_CONVERTER', ''),
+    'office_preview_max_size'=> 209715200,
 
     // +----------------------------------------------------------------------
     // | 模块设置
