@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<title>文档预览</title>
+<!--
+  文档预览器(独立页面,由 preview.html 以 iframe 嵌入)
+
+  为什么要独立成页 + 自己渲染,而不用 pdf.js 自带的 web/viewer.html:
+    1. 独立文档意味着站点的 Bootstrap 3 与 layout.html 内联样式物理上够不着这里,
+       从根上消除"预览样式错乱"这类问题;
+    2. 自带 viewer 的 ?file= 参数可以传任意 URL,是个开放重定向面,自己写只接受站内相对路径;
+    3. 移动端/微信内置浏览器不依赖原生 PDF 插件,纯 canvas 渲染,到哪都一样。
+
+  pdf.js 用的是本地 vendored 版本(public/static/vendor/pdfjs/6.3.289),
+  其中 build/*.mjs 已改名为 .js —— nginx 的 mime.types 没有 .mjs 映射,
+  会按 application/octet-stream 下发,浏览器会拒绝执行该 module。
+-->
+<style>
+    * { box-sizing: border-box; }
+    html, body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #525659;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+        font-size: 13px;
+    }
+    #toolbar {
+        height: 40px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 10px;
+        background: #323639;
+        color: #e8eaed;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+        position: relative;
+        z-index: 2;
+        user-select: none;
+    }
+    #toolbar .spacer { flex: 1; }
+    #toolbar button {
+        background: transparent;
+        border: 1px solid transparent;
+        color: #e8eaed;
+        height: 28px;
+        min-width: 28px;
+        padding: 0 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+        line-height: 1;
+    }
+    #toolbar button:hover:not(:disabled) { background: rgba(255,255,255,0.12); }
+    #toolbar button:disabled { opacity: 0.35; cursor: default; }
+    #pageInfo { padding: 0 6px; white-space: nowrap; }
+    #pageInfo input {
+        width: 42px;
+        text-align: center;
+        background: #1f2223;
+        border: 1px solid #5f6368;
+        color: #e8eaed;
+        border-radius: 4px;
+        height: 24px;
+        margin: 0 4px;
+        font-size: 13px;
+    }
+    #zoomLabel { min-width: 48px; text-align: center; }
+
+    #viewer {
+        position: absolute;
+        top: 40px; left: 0; right: 0; bottom: 0;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    #pages { padding: 12px 0 24px; }
+
+    .page {
+        position: relative;
+        margin: 0 auto 12px;
+        background: #fff;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+        /* 尺寸由脚本按缩放后的 viewport 设置,未渲染时先占位避免滚动条跳动 */
+    }
+    .page canvas { display: block; }
+    .page .page-num {
+        position: absolute;
+        right: 6px;
+        bottom: 4px;
+        color: #9aa0a6;
+        font-size: 11px;
+        pointer-events: none;
+    }
+
+    #status {
+        position: absolute;
+        top: 40px; left: 0; right: 0; bottom: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        color: #d7dbdf;
+        text-align: center;
+        padding: 24px;
+    }
+    #status.hidden { display: none; }
+    .status-msg { max-width: 420px; line-height: 1.7; }
+    .spinner {
+        width: 34px; height: 34px;
+        border: 3px solid rgba(255,255,255,0.25);
+        border-top-color: #8ab4f8;
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 767px) {
+        #toolbar { gap: 2px; padding: 0 6px; }
+        #toolbar button { padding: 0 6px; }
+    }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+    <button id="prevBtn" title="上一页">‹</button>
+    <span id="pageInfo">
+        <input id="pageInput" type="text" inputmode="numeric" value="1"> / <span id="pageCount">-</span>
+    </span>
+    <button id="nextBtn" title="下一页">›</button>
+    <span class="spacer"></span>
+    <button id="zoomOutBtn" title="缩小">−</button>
+    <span id="zoomLabel">100%</span>
+    <button id="zoomInBtn" title="放大">+</button>
+    <button id="fitBtn" title="适合页宽">适宽</button>
+</div>
+
+<div id="viewer"><div id="pages"></div></div>
+
+<div id="status">
+    <div class="spinner" id="statusSpinner"></div>
+    <div class="status-msg" id="statusMsg">正在加载文档…</div>
+</div>
+
+<script type="module">
+import * as pdfjsLib from '/static/vendor/pdfjs/6.3.289/build/pdf.js';
+
+const BASE = '/static/vendor/pdfjs/6.3.289';
+const MIN_SCALE = 0.25;
+const MAX_SCALE = 5;
+
+const els = {
+    viewer:    document.getElementById('viewer'),
+    pages:     document.getElementById('pages'),
+    status:    document.getElementById('status'),
+    spinner:   document.getElementById('statusSpinner'),
+    statusMsg: document.getElementById('statusMsg'),
+    prev:      document.getElementById('prevBtn'),
+    next:      document.getElementById('nextBtn'),
+    pageInput: document.getElementById('pageInput'),
+    pageCount: document.getElementById('pageCount'),
+    zoomIn:    document.getElementById('zoomInBtn'),
+    zoomOut:   document.getElementById('zoomOutBtn'),
+    zoomLabel: document.getElementById('zoomLabel'),
+    fit:       document.getElementById('fitBtn'),
+};
+
+/**
+ * 取出 ?file= 参数。
+ *
+ * 只接受站内绝对路径:pdf.js 的文档 URL 会由浏览器直接去取,
+ * 放行 http(s):// 或 //host 等于给站点开一个开放重定向/探测面。
+ */
+function readFileParam() {
+    const raw = new URLSearchParams(location.search).get('file') || '';
+    if (!raw.startsWith('/') || raw.startsWith('//')) {
+        return '';
+    }
+    return raw;
+}
+
+function showStatus(msg, spin) {
+    els.status.classList.remove('hidden');
+    els.statusMsg.textContent = msg;
+    els.spinner.style.display = spin ? '' : 'none';
+}
+
+function hideStatus() {
+    els.status.classList.add('hidden');
+}
+
+const state = {
+    pdf: null,
+    scale: 1,
+    pages: [],       // { num, page, baseVp, el, canvas, renderedScale }
+    rendering: new Set(),
+};
+
+function viewportOf(item) {
+    return item.baseVp.clone({ scale: state.scale });
+}
+
+/** 按当前缩放设置每页占位尺寸(未渲染的页也先占住位置,避免滚动条乱跳) */
+function layout() {
+    for (const item of state.pages) {
+        const vp = viewportOf(item);
+        item.el.style.width  = Math.floor(vp.width) + 'px';
+        item.el.style.height = Math.floor(vp.height) + 'px';
+        // 缩放变了,已渲染的内容作废,等进入视野再重画。
+        // 同时清掉失败标记,换了缩放值得重新试一次。
+        if (item.renderedScale !== state.scale) {
+            if (item.canvas) {
+                item.el.removeChild(item.canvas);
+                item.canvas = null;
+            }
+            item.renderedScale = null;
+            item.failedScale = null;
+        }
+    }
+    els.zoomLabel.textContent = Math.round(state.scale * 100) + '%';
+    renderVisible();
+}
+
+async function renderPage(item) {
+    if (item.canvas && item.renderedScale === state.scale) {
+        return;
+    }
+    // 这个缩放下已经渲染失败过就别再试了 —— 否则失败 → 补渲染 → 再失败会变成死循环
+    if (item.failedScale === state.scale) {
+        return;
+    }
+    if (state.rendering.has(item.num)) {
+        return;
+    }
+    state.rendering.add(item.num);
+
+    const scale = state.scale;
+    let failed = false;
+
+    try {
+        const vp = item.baseVp.clone({ scale });
+        // 按设备像素比放大画布再缩回来,否则高分屏上文字发虚
+        const outputScale = window.devicePixelRatio || 1;
+
+        const canvas = document.createElement('canvas');
+        canvas.width  = Math.floor(vp.width * outputScale);
+        canvas.height = Math.floor(vp.height * outputScale);
+        canvas.style.width  = Math.floor(vp.width) + 'px';
+        canvas.style.height = Math.floor(vp.height) + 'px';
+
+        await item.page.render({
+            canvasContext: canvas.getContext('2d'),
+            viewport: vp,
+            transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null,
+        }).promise;
+
+        // 期间用户可能又缩放了,这次结果作废(下面的 finally 会补一次)
+        if (scale !== state.scale) {
+            return;
+        }
+
+        if (item.canvas) {
+            item.el.removeChild(item.canvas);
+        }
+        item.canvas = canvas;
+        item.renderedScale = scale;
+        item.el.insertBefore(canvas, item.el.firstChild);
+    } catch (err) {
+        failed = true;
+        console.error('render page ' + item.num + ' failed:', err);
+    } finally {
+        state.rendering.delete(item.num);
+
+        if (failed) {
+            item.failedScale = scale;
+        } else if (item.renderedScale !== state.scale) {
+            // 渲染被丢弃了,补一次 —— 否则这一页会一直空着,直到用户滚动才重新出现。
+            // 放到 microtask 里,避免同步重入把调用栈压深。
+            setTimeout(function () { renderPage(item); }, 0);
+        }
+    }
+}
+
+function renderVisible() {
+    const top = els.viewer.scrollTop - els.viewer.clientHeight;
+    const bottom = els.viewer.scrollTop + els.viewer.clientHeight * 2;
+
+    for (const item of state.pages) {
+        const elTop = item.el.offsetTop;
+        const elBottom = elTop + item.el.offsetHeight;
+        if (elBottom >= top && elTop <= bottom) {
+            renderPage(item);
+        }
+    }
+    updatePageIndicator();
+}
+
+/** 当前视野中心页,用于工具栏页码显示 */
+function currentPageNum() {
+    const mid = els.viewer.scrollTop + els.viewer.clientHeight / 2;
+    for (const item of state.pages) {
+        if (item.el.offsetTop + item.el.offsetHeight >= mid) {
+            return item.num;
+        }
+    }
+    return state.pages.length || 1;
+}
+
+function updatePageIndicator() {
+    if (!state.pdf) {
+        return;
+    }
+    const num = currentPageNum();
+    if (document.activeElement !== els.pageInput) {
+        els.pageInput.value = num;
+    }
+    els.prev.disabled = num <= 1;
+    els.next.disabled = num >= state.pdf.numPages;
+}
+
+function gotoPage(num) {
+    const item = state.pages[num - 1];
+    if (item) {
+        els.viewer.scrollTop = item.el.offsetTop - 8;
+    }
+}
+
+function setScale(next, keepCenter) {
+    const clamped = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next));
+    if (Math.abs(clamped - state.scale) < 0.001) {
+        return;
+    }
+
+    // 尽量保持视口中心对应的内容不跳走
+    let anchor = null;
+    if (keepCenter && state.pages.length) {
+        const mid = els.viewer.scrollTop + els.viewer.clientHeight / 2;
+        for (const item of state.pages) {
+            if (item.el.offsetTop + item.el.offsetHeight >= mid) {
+                anchor = { page: item.num, ratio: (mid - item.el.offsetTop) / item.el.offsetHeight };
+                break;
+            }
+        }
+    }
+
+    state.scale = clamped;
+    layout();
+
+    if (anchor) {
+        const item = state.pages[anchor.page - 1];
+        if (item) {
+            els.viewer.scrollTop = item.el.offsetTop + item.el.offsetHeight * anchor.ratio
+                - els.viewer.clientHeight / 2;
+        }
+    }
+}
+
+/**
+ * 适合页宽的缩放比。
+ * @param {object} [baseVp] 页面在 scale=1 下的 viewport;
+ *                          不传则取第一页(首次进入时页面还没建好,必须先传)
+ */
+function fitWidthScale(baseVp) {
+    const vp = baseVp || (state.pages[0] && state.pages[0].baseVp);
+    if (!vp) {
+        return state.scale;
+    }
+    // 留出滚动条与页边距的余量
+    const avail = els.viewer.clientWidth - 24;
+    return avail > 0 ? avail / vp.width : 1;
+}
+
+async function boot() {
+    const fileUrl = readFileParam();
+    if (!fileUrl) {
+        els.spinner.style.display = 'none';
+        showStatus('预览地址无效,请返回后重新打开预览。', false);
+        return;
+    }
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = BASE + '/build/pdf.worker.js';
+
+    let pdf;
+    try {
+        pdf = await pdfjsLib.getDocument({
+            url: fileUrl,
+            // 未内嵌字体的 CJK 文档靠 cmaps 才能正确出字,缺了会整片空白
+            cMapUrl: BASE + '/cmaps/',
+            cMapPacked: true,
+            standardFontDataUrl: BASE + '/standard_fonts/',
+            // JPX(JBIG2/JPEG2000)图片解码与色彩管理依赖这两个目录
+            wasmUrl: BASE + '/wasm/',
+            iccUrl: BASE + '/iccs/',
+        }).promise;
+    } catch (err) {
+        console.error('load pdf failed:', err);
+        els.spinner.style.display = 'none';
+        // pdf.js 抛的是 PasswordException / InvalidPDFException 等,这里统一给用户可懂的提示
+        const name = err && err.name ? err.name : '';
+        let msg = '文档加载失败,可返回后下载文件用本地软件打开。';
+        if (name === 'PasswordException') {
+            msg = '该文档有密码保护,无法在线预览,请下载后用本地软件打开。';
+        } else if (/MissingPDF|UnexpectedResponse/i.test(name)) {
+            msg = '预览文件不存在或已过期,请返回列表重新打开预览。';
+        }
+        showStatus(msg, false);
+        return;
+    }
+
+    state.pdf = pdf;
+    els.pageCount.textContent = pdf.numPages;
+
+    // 先按适宽铺好页面,再逐页渲染
+    const firstPage = await pdf.getPage(1);
+    // 首次进入按"适合页宽"而不是 100% —— 手机上默认 100% 只能看到左上角一小块
+    state.scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, fitWidthScale(firstPage.getViewport({ scale: 1 }))));
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const page = i === 1 ? firstPage : await pdf.getPage(i);
+        const el = document.createElement('div');
+        el.className = 'page';
+        const numTag = document.createElement('span');
+        numTag.className = 'page-num';
+        numTag.textContent = i;
+        el.appendChild(numTag);
+
+        const item = {
+            num: i,
+            page,
+            baseVp: page.getViewport({ scale: 1 }),
+            el,
+            canvas: null,
+            renderedScale: null,
+            failedScale: null,   // 该缩放下渲染失败过,避免无脑重试
+        };
+        state.pages.push(item);
+        els.pages.appendChild(el);
+    }
+
+    layout();
+    hideStatus();
+    gotoPage(1);
+
+    els.viewer.addEventListener('scroll', renderVisible, { passive: true });
+    window.addEventListener('resize', function () {
+        layout();
+    });
+}
+
+els.zoomIn.addEventListener('click', function () { setScale(state.scale * 1.25, true); });
+els.zoomOut.addEventListener('click', function () { setScale(state.scale / 1.25, true); });
+els.fit.addEventListener('click', function () { setScale(fitWidthScale(), true); });
+els.prev.addEventListener('click', function () { gotoPage(Math.max(1, currentPageNum() - 1)); });
+els.next.addEventListener('click', function () {
+    gotoPage(Math.min(state.pdf ? state.pdf.numPages : 1, currentPageNum() + 1));
+});
+els.pageInput.addEventListener('change', function () {
+    const n = parseInt(els.pageInput.value, 10);
+    if (!isNaN(n) && state.pdf) {
+        gotoPage(Math.min(state.pdf.numPages, Math.max(1, n)));
+    }
+});
+
+boot();
+</script>
+</body>
+</html>

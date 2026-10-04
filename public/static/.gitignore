@@ -4,3 +4,7 @@
 !css/app.css
 !js/
 !js/app.js
+!preview/
+!preview/**
+!vendor/
+!vendor/**
