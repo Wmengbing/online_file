@@ -144,6 +144,12 @@ configure_open_basedir() {
     local release_dir="$1"
     local user_ini="$release_dir/public/.user.ini"
 
+    # BaoTa commonly protects .user.ini with the immutable filesystem flag.
+    # Remove it before updating or deleting this exact release-local file.
+    if [[ -e "$user_ini" ]] && command -v chattr >/dev/null 2>&1; then
+        chattr -i -- "$user_ini" 2>/dev/null || true
+    fi
+
     if [[ "$OPEN_BASEDIR_ENABLED" != "1" ]]; then
         rm -f -- "$user_ini"
         warn "PHP open_basedir management is disabled"
@@ -292,7 +298,12 @@ cleanup_old_releases() {
         kept=$((kept + 1))
         if ((kept > KEEP_RELEASES)); then
             case "$release_dir" in
-                "$RELEASES_DIR"/*) rm -rf -- "$release_dir" ;;
+                "$RELEASES_DIR"/*)
+                    if [[ -e "$release_dir/public/.user.ini" ]] && command -v chattr >/dev/null 2>&1; then
+                        chattr -i -- "$release_dir/public/.user.ini" 2>/dev/null || true
+                    fi
+                    rm -rf -- "$release_dir"
+                    ;;
                 *) die "Refusing to remove unexpected release path: $release_dir" ;;
             esac
         fi
