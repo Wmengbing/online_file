@@ -52,6 +52,7 @@ printf '%s\n' "$COMMIT" >"$RELEASE_DIR/.release-commit"
 printf '%s\n' "$RELEASE_REF" >"$RELEASE_DIR/.release-ref"
 
 link_shared_paths "$RELEASE_DIR"
+configure_open_basedir "$RELEASE_DIR"
 run_composer_install "$RELEASE_DIR"
 lint_php_files "$RELEASE_DIR"
 backup_database

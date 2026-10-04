@@ -23,6 +23,7 @@ assert_release_path "$TARGET_RELEASE"
 [[ "$TARGET_RELEASE" != "$CURRENT_RELEASE" ]] || die "Target release is already active"
 [[ ! -f "$TARGET_RELEASE/.failed" ]] || die "Target release is marked as failed: $(basename "$TARGET_RELEASE")"
 
+configure_open_basedir "$TARGET_RELEASE"
 clear_application_cache
 atomic_link "$CURRENT_RELEASE" "$PREVIOUS_LINK"
 log "Rolling back to $(basename "$TARGET_RELEASE")"

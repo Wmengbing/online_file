@@ -15,6 +15,10 @@ WEB_USER=www
 WEB_GROUP=www
 KEEP_RELEASES=5
 
+# Keep BaoTa's cross-site protection enabled while allowing the real release
+# directory behind current/public and the shared runtime/upload directories.
+OPEN_BASEDIR_ENABLED=1
+
 # Check through local Nginx so deploys do not depend on public DNS. Replace the
 # Host value with the domain configured in BaoTa. Any non-2xx response fails.
 HEALTHCHECK_URL=http://127.0.0.1/login

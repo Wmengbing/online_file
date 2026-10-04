@@ -334,3 +334,25 @@ ls -lh /www/wwwroot/online_file/backups
 - 监控磁盘空间、Nginx/PHP 错误日志和数据库容量。
 - 定期测试回滚和数据库恢复，不只确认备份文件存在。
 - 若启用 `php think task:worker`，用 Supervisor 守护，并在 `POST_SWITCH_COMMAND` 中重启它。
+
+## 13. 快速发布示例
+
+本地发布：
+
+```bash
+git add .
+git commit -m "优化文件列表页面"
+git tag -a release-20261004-04 -m "release-20261004-04"
+git push origin main release-20261004-04
+```
+
+线上发布：
+
+```bash
+cd /opt/online_file_deployer
+git pull --ff-only
+git fetch --tags
+bash ops/deploy.sh release-20261004-04
+```
+
+发布和回滚脚本会在目标版本的 `public/.user.ini` 中自动配置 `open_basedir`，允许 PHP 访问软链接对应的真实版本目录、`shared` 共享目录和 `/tmp`。宝塔的防跨站保护可以继续开启。若服务器改为通过 PHP-FPM 池配置统一管理 `open_basedir`，可在 `/etc/online-file-deploy.conf` 设置 `OPEN_BASEDIR_ENABLED=0`。

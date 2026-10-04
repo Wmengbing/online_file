@@ -51,6 +51,7 @@ load_deploy_config() {
     POST_SWITCH_COMMAND="${POST_SWITCH_COMMAND:-}"
     DB_BACKUP_ENABLED="${DB_BACKUP_ENABLED:-1}"
     DB_BACKUP_REQUIRED="${DB_BACKUP_REQUIRED:-1}"
+    OPEN_BASEDIR_ENABLED="${OPEN_BASEDIR_ENABLED:-1}"
     MYSQL_DEFAULTS_FILE="${MYSQL_DEFAULTS_FILE:-}"
     MYSQL_LOGIN_PATH="${MYSQL_LOGIN_PATH:-}"
     MYSQL_BIN="${MYSQL_BIN:-mysql}"
@@ -61,6 +62,7 @@ load_deploy_config() {
     [[ "$KEEP_RELEASES" =~ ^[1-9][0-9]*$ ]] || die "KEEP_RELEASES must be a positive integer"
     [[ "$HEALTHCHECK_RETRIES" =~ ^[1-9][0-9]*$ ]] || die "HEALTHCHECK_RETRIES must be a positive integer"
     [[ "$HEALTHCHECK_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || die "HEALTHCHECK_TIMEOUT must be a positive integer"
+    [[ "$OPEN_BASEDIR_ENABLED" =~ ^[01]$ ]] || die "OPEN_BASEDIR_ENABLED must be 0 or 1"
 
     RELEASES_DIR="$APP_ROOT/releases"
     SHARED_DIR="$APP_ROOT/shared"
@@ -136,6 +138,24 @@ link_shared_paths() {
     ln -s "$SHARED_DIR/.env" "$release_dir/.env"
     ln -s "$SHARED_DIR/uploads" "$release_dir/uploads"
     ln -s "$SHARED_DIR/runtime" "$release_dir/runtime"
+}
+
+configure_open_basedir() {
+    local release_dir="$1"
+    local user_ini="$release_dir/public/.user.ini"
+
+    if [[ "$OPEN_BASEDIR_ENABLED" != "1" ]]; then
+        rm -f -- "$user_ini"
+        warn "PHP open_basedir management is disabled"
+        return 0
+    fi
+
+    # BaoTa points Nginx at current/public, but PHP resolves that symlink to the
+    # real release directory. Allow the immutable release and shared writable
+    # data explicitly so framework bootstrapping and shared paths both work.
+    printf 'open_basedir=%s/:%s/:/tmp/\n' "$release_dir" "$SHARED_DIR" >"$user_ini"
+    chmod 0644 "$user_ini"
+    log "Configured PHP open_basedir for $(basename "$release_dir")"
 }
 
 clear_application_cache() {
