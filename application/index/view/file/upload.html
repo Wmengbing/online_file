@@ -449,6 +449,11 @@ function resumeChunked(item) {
             finishUpload(item, false);
             return;
         }
+        if (res.data && res.data.completed) {
+            setUpload(item.id, {progress: 100});
+            finishUpload(item, true);
+            return;
+        }
         var missing = res.data.remaining || [];
         var doneCount = item.total_chunks - missing.length;
         setUpload(item.id, {progress: Math.round(doneCount / item.total_chunks * 100)});
@@ -566,9 +571,25 @@ function mergeChunked(item) {
             item.errorMsg = res.msg || '合并失败';
             finishUpload(item, false);
         }
-    }, 'json').fail(function() {
-        item.errorMsg = '合并请求失败';
-        finishUpload(item, false);
+    }, 'json').fail(function(xhr) {
+        var failure = (xhr.responseJSON && xhr.responseJSON.msg)
+            || '合并请求失败（HTTP ' + (xhr.status || '网络异常') + '）';
+        // 服务端可能已完成落库，但响应在最后一步失败；先查询任务，避免重复上传。
+        $.get('{:url("index/file/chunkStatus")}', {
+            upload_id: item.upload_id,
+            total_chunks: item.total_chunks
+        }, function(status) {
+            if (status.code === 200 && status.data && status.data.completed) {
+                setUpload(item.id, {progress: 100});
+                finishUpload(item, true);
+            } else {
+                item.errorMsg = failure;
+                finishUpload(item, false);
+            }
+        }, 'json').fail(function() {
+            item.errorMsg = failure;
+            finishUpload(item, false);
+        });
     });
 }
 

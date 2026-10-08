@@ -2205,10 +2205,20 @@ class File extends Base
         $task = Db::name('upload_tasks')
             ->where('upload_id', $upload_id)
             ->where('user_id', $this->user_id)
-            ->where('status', 0)
             ->find();
         if (!$task || $total_chunks !== (int)$task['total_chunks']) {
             return json(['code' => 400, 'msg' => '上传任务不存在或参数不一致']);
+        }
+        if ((int)$task['status'] === 1 && !empty($task['file_id'])) {
+            return json(['code' => 200, 'msg' => '上传已完成', 'data' => [
+                'completed' => true,
+                'file_id' => (int)$task['file_id'],
+                'received' => [],
+                'remaining' => [],
+            ]]);
+        }
+        if ((int)$task['status'] !== 0) {
+            return json(['code' => 400, 'msg' => '上传任务已结束']);
         }
 
         $rows = Db::name('file_chunks')
@@ -2426,7 +2436,7 @@ class File extends Base
                 'updated_at' => date('Y-m-d H:i:s'),
             ]);
 
-        log_operation('file', 'upload', '分片上传文件:' . $file_name);
+        log_operation('file', 'upload', '分片上传文件:' . $actual_file_name);
 
         return json(['code' => 200, 'msg' => '上传完成', 'data' => [
             'file_id'    => $file_id,
