@@ -727,6 +727,37 @@ class File extends Base
         return array_values(array_unique($all_ids));
     }
 
+    /**
+     * 只复用确实存在且内容与哈希一致的实体文件。
+     * 旧数据库迁移不完整时，不能让新上传继续指向失效路径。
+     */
+    private function findReusableFilePath($hash, $size)
+    {
+        $paths = Db::name('files')
+            ->where('hash', $hash)
+            ->where('size', $size)
+            ->where('type', 1)
+            ->where('status', 1)
+            ->order('id', 'desc')
+            ->limit(20)
+            ->column('path');
+
+        foreach (array_unique((array)$paths) as $path) {
+            if (!is_string($path) || strpos($path, 'uploads/') !== 0 || strpos($path, '..') !== false) {
+                continue;
+            }
+            $full_path = get_file_full_path($path);
+            if (!is_file($full_path) || !is_readable($full_path) || (int)@filesize($full_path) !== (int)$size) {
+                continue;
+            }
+            if (@hash_file('sha256', $full_path) === $hash) {
+                return $path;
+            }
+        }
+
+        return null;
+    }
+
     private function handleUpload($file, $parent_id = 0, $relative_path = '')
     {
         if ($parent_id > 0 && !$this->validateFolderOwner($parent_id)) {
@@ -774,14 +805,13 @@ class File extends Base
         }
         
         $file_hash = calculate_file_hash($file->getPathname());
+        if ($file_hash === false) {
+            return ['error' => '无法校验上传文件'];
+        }
         
-        $exist_file = Db::name('files')
-            ->where('hash', $file_hash)
-            ->where('type', 1)
-            ->where('status', 1)
-            ->find();
+        $reusable_path = $this->findReusableFilePath($file_hash, $file_size);
         
-        if ($exist_file) {
+        if ($reusable_path !== null) {
             Db::name('files')->insert([
                 'user_id'   => $this->user_id,
                 'parent_id' => $actual_parent_id,
@@ -790,7 +820,7 @@ class File extends Base
                 // 传 $file_name:临时文件路径(phpXXXX.tmp)没有扩展名
                 'mime_type' => get_mime_type($file->getPathname(), $file_name),
                 'size'      => $file_size,
-                'path'      => $exist_file['path'],
+                'path'      => $reusable_path,
                 'extension' => $extension,
                 'hash'      => $file_hash,
                 'status'    => 1,
@@ -807,11 +837,18 @@ class File extends Base
         $date_path = date('Y/m/d');
         $save_path = $this->upload_path . '/' . $date_path;
         create_directory($save_path);
+        if (!is_dir($save_path)) {
+            return ['error' => '无法创建上传目录'];
+        }
         
         $save_name = md5(uniqid() . $file_name) . '.' . $extension;
         $full_path = $save_path . '/' . $save_name;
         
-        $file->move($save_path, $save_name);
+        $moved = $file->move($save_path, $save_name);
+        if (!$moved || !is_file($full_path) || (int)@filesize($full_path) !== (int)$file_size) {
+            if (is_file($full_path)) @unlink($full_path);
+            return ['error' => '上传文件保存失败'];
+        }
         
         $storage_path = 'uploads/' . $date_path . '/' . $save_name;
         
@@ -1891,6 +1928,11 @@ class File extends Base
                         ->where('id', 'in', array_unique($ids_to_hide))
                         ->where('status', 1)
                         ->update(['status' => 0]);
+                    // 删除目录时子孙文件也会被隐藏，公开分享必须同时停用。
+                    Db::name('file_shares')
+                        ->where('file_id', 'in', array_unique($ids_to_hide))
+                        ->where('status', 1)
+                        ->update(['status' => 0]);
                 }
 
                 if (!empty($recycle_data)) {
@@ -2057,7 +2099,18 @@ class File extends Base
         if (!preg_match('/^[a-f0-9]{32}$/', $upload_id)) {
             return json(['code' => 400, 'msg' => 'upload_id 无效']);
         }
-        if ($chunk_index < 0 || $total_chunks <= 0 || $chunk_index >= $total_chunks || $total_chunks > 65536) {
+        $task = Db::name('upload_tasks')
+            ->where('upload_id', $upload_id)
+            ->where('user_id', $this->user_id)
+            ->where('status', 0)
+            ->find();
+        if (!$task) {
+            return json(['code' => 400, 'msg' => '上传任务不存在或已结束']);
+        }
+        if ($total_chunks !== (int)$task['total_chunks']
+            || $total_size !== (int)$task['total_size']
+            || $file_name !== $task['file_name']
+            || $chunk_index < 0 || $chunk_index >= (int)$task['total_chunks']) {
             return json(['code' => 400, 'msg' => '分片参数无效']);
         }
 
@@ -2066,8 +2119,10 @@ class File extends Base
         if (!$file || !$chunk_size) {
             return json(['code' => 400, 'msg' => '缺少分片数据']);
         }
-        if ($chunk_size > (int)app_cfg('chunk_size', 5242880)) {
-            return json(['code' => 400, 'msg' => '分片超过大小限制']);
+        $configured_chunk_size = (int)app_cfg('chunk_size', 5242880);
+        $expected_size = min($configured_chunk_size, (int)$task['total_size'] - $chunk_index * $configured_chunk_size);
+        if ($expected_size <= 0 || $chunk_size !== $expected_size) {
+            return json(['code' => 400, 'msg' => '分片大小与上传任务不一致']);
         }
 
         $tmp_dir = $this->upload_path . '/tmp/u' . $this->user_id . '_' . $upload_id;
@@ -2077,28 +2132,42 @@ class File extends Base
 
         $chunk_path = $tmp_dir . '/' . sprintf('%06d.part', $chunk_index);
 
-        // 已存在的分片直接跳过(断点续传/重试场景,避免重复写入)
-        if (!file_exists($chunk_path)) {
+        $incoming_hash = hash_file('sha256', $file->getPathname());
+        if ($incoming_hash === false) {
+            return json(['code' => 500, 'msg' => '无法校验上传分片']);
+        }
+        // 同一分片重试时复用一致的内容；旧分片损坏时用本次上传替换。
+        if (is_file($chunk_path)
+            && ((int)@filesize($chunk_path) !== $expected_size
+                || @hash_file('sha256', $chunk_path) !== $incoming_hash)
+            && !@unlink($chunk_path)) {
+            return json(['code' => 500, 'msg' => '无法替换损坏的分片']);
+        }
+        if (!is_file($chunk_path)) {
             $file->move($tmp_dir, sprintf('%06d.part', $chunk_index));
         }
-        $chunk_hash = hash_file('sha256', $chunk_path);
+        $chunk_hash = @hash_file('sha256', $chunk_path);
+        if ($chunk_hash !== $incoming_hash) {
+            return json(['code' => 500, 'msg' => '上传分片校验失败']);
+        }
         $rel_path = 'uploads/tmp/u' . $this->user_id . '_' . $upload_id . '/' . sprintf('%06d.part', $chunk_index);
 
         $exist = Db::name('file_chunks')
             ->where('upload_id', $upload_id)
+            ->where('user_id', $this->user_id)
             ->where('chunk_index', $chunk_index)
             ->find();
 
         $data = [
             'user_id'     => $this->user_id,
             'upload_id'   => $upload_id,
-            'file_name'   => $file_name,
+            'file_name'   => $task['file_name'],
             'chunk_index' => $chunk_index,
             'chunk_hash'  => $chunk_hash,
             'chunk_size'  => $chunk_size,
             'chunk_path'  => $rel_path,
-            'total_chunks'=> $total_chunks,
-            'total_size'  => $total_size,
+            'total_chunks'=> (int)$task['total_chunks'],
+            'total_size'  => (int)$task['total_size'],
             'status'      => 0,
         ];
 
@@ -2106,16 +2175,14 @@ class File extends Base
             Db::name('file_chunks')->where('id', $exist['id'])->update($data);
         } else {
             Db::name('file_chunks')->insert($data);
+            Db::name('upload_tasks')
+                ->where('id', $task['id'])
+                ->where('status', 0)
+                ->update([
+                    'uploaded_chunks' => Db::raw('uploaded_chunks + 1'),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
         }
-
-        // 更新上传任务的已上传分片数
-        Db::name('upload_tasks')
-            ->where('upload_id', $upload_id)
-            ->where('user_id', $this->user_id)
-            ->update([
-                'uploaded_chunks' => Db::raw('uploaded_chunks + 1'),
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]);
 
         return json(['code' => 200, 'msg' => '分片上传成功', 'data' => ['index' => $chunk_index]]);
     }
@@ -2135,22 +2202,42 @@ class File extends Base
         if (!preg_match('/^[a-f0-9]{32}$/', $upload_id)) {
             return json(['code' => 400, 'msg' => 'upload_id 无效']);
         }
+        $task = Db::name('upload_tasks')
+            ->where('upload_id', $upload_id)
+            ->where('user_id', $this->user_id)
+            ->where('status', 0)
+            ->find();
+        if (!$task || $total_chunks !== (int)$task['total_chunks']) {
+            return json(['code' => 400, 'msg' => '上传任务不存在或参数不一致']);
+        }
 
         $rows = Db::name('file_chunks')
             ->where('upload_id', $upload_id)
             ->where('user_id', $this->user_id)
-            ->column('chunk_path', 'chunk_index');
+            ->field('chunk_index,chunk_path,chunk_hash,chunk_size')
+            ->select();
 
         $received = [];
-        foreach ($rows as $idx => $path) {
-            if (file_exists(get_file_full_path($path))) {
-                $received[] = (int)$idx;
+        $configured_chunk_size = (int)app_cfg('chunk_size', 5242880);
+        foreach ($rows as $row) {
+            $idx = (int)$row['chunk_index'];
+            if ($idx < 0 || $idx >= (int)$task['total_chunks']) {
+                continue;
+            }
+            $expected_size = min($configured_chunk_size, (int)$task['total_size'] - $idx * $configured_chunk_size);
+            $part = get_file_full_path($row['chunk_path']);
+            if ($expected_size > 0 && is_file($part)
+                && (int)@filesize($part) === $expected_size
+                && (int)$row['chunk_size'] === $expected_size
+                && is_string($row['chunk_hash'])
+                && @hash_file('sha256', $part) === $row['chunk_hash']) {
+                $received[] = $idx;
             }
         }
 
         return json(['code' => 200, 'msg' => 'ok', 'data' => [
             'received'  => $received,
-            'remaining' => $total_chunks > 0 ? array_values(array_diff(range(0, $total_chunks - 1), $received)) : [],
+            'remaining' => array_values(array_diff(range(0, (int)$task['total_chunks'] - 1), $received)),
         ]]);
     }
 
@@ -2164,34 +2251,37 @@ class File extends Base
             return json(['code' => 401, 'msg' => '请先登录']);
         }
 
-        $upload_id    = (string)input('upload_id', '');
-        $file_name    = trim((string)input('file_name', ''));
-        $parent_id    = $this->resolveWritableParentId((int)input('parent_id', 0));
-        $total_chunks = (int)input('total_chunks', 0);
-        $total_size   = (int)input('total_size', 0);
-        $relative_path = trim((string)input('relative_path', ''));
+        $upload_id = (string)input('upload_id', '');
 
         if (!preg_match('/^[a-f0-9]{32}$/', $upload_id)) {
             return json(['code' => 400, 'msg' => 'upload_id 无效']);
         }
-        if ($total_chunks <= 0 || $file_name === '') {
-            return json(['code' => 400, 'msg' => '参数无效']);
+        $task = Db::name('upload_tasks')
+            ->where('upload_id', $upload_id)
+            ->where('user_id', $this->user_id)
+            ->find();
+        if ($task && (int)$task['status'] === 1 && !empty($task['file_id'])) {
+            return json(['code' => 200, 'msg' => '上传已完成', 'data' => ['file_id' => (int)$task['file_id']]]);
         }
-
-        // 处理文件夹上传的相对路径
-        $actual_parent_id = $parent_id;
-        $actual_file_name = $file_name;
-        if (!empty($relative_path)) {
-            $path_parts = $this->parseRelativePath($relative_path);
-            if (isset($path_parts['error'])) {
-                return json(['code' => 400, 'msg' => $path_parts['error']]);
-            }
-            if ($path_parts['folder_path']) {
-                $actual_parent_id = $this->ensureFolderPathExists($path_parts['folder_path'], $parent_id);
-            }
-            $actual_file_name = $path_parts['file_name'];
+        if (!$task || (int)$task['status'] !== 0) {
+            return json(['code' => 400, 'msg' => '上传任务不存在或已结束']);
         }
-
+        // 合并时只使用初始化阶段由服务器保存的元数据。
+        $actual_file_name = (string)$task['file_name'];
+        $actual_parent_id = (int)$task['parent_id'];
+        $total_chunks = (int)$task['total_chunks'];
+        $total_size = (int)$task['total_size'];
+        $configured_chunk_size = (int)app_cfg('chunk_size', 5242880);
+        if (trim((string)input('file_name', '')) !== $actual_file_name
+            || (int)input('total_chunks', 0) !== $total_chunks
+            || (int)input('total_size', 0) !== $total_size) {
+            return json(['code' => 400, 'msg' => '上传参数与初始化任务不一致']);
+        }
+        if ($total_size <= 0 || $total_size > (int)app_cfg('max_file_size', 1073741824)
+            || $total_chunks !== (int)ceil($total_size / $configured_chunk_size)
+            || !is_allowed_extension(get_file_extension($actual_file_name))) {
+            return json(['code' => 400, 'msg' => '上传任务的文件类型或大小无效']);
+        }
         if ($actual_parent_id > 0 && !$this->validateFolderOwner($actual_parent_id)) {
             return json(['code' => 400, 'msg' => '目标目录不存在']);
         }
@@ -2209,7 +2299,7 @@ class File extends Base
 
         $idx_map = [];
         foreach ($chunk_rows as $row) {
-            $idx_map[(int)$row['chunk_index']] = $row['chunk_path'];
+            $idx_map[(int)$row['chunk_index']] = $row;
         }
         if (count($idx_map) < $total_chunks) {
             return json(['code' => 400, 'msg' => '分片不完整,请重新上传缺失分片', 'data' => ['missing' => array_values(array_diff(range(0, $total_chunks - 1), array_keys($idx_map)))]]);
@@ -2230,22 +2320,45 @@ class File extends Base
         }
         try {
             for ($i = 0; $i < $total_chunks; $i++) {
+                if (!isset($idx_map[$i])) {
+                    throw new \Exception('分片记录缺失:' . $i);
+                }
                 $part = $tmp_dir . '/' . sprintf('%06d.part', $i);
-                if (!file_exists($part)) {
-                    throw new \Exception('分片缺失:' . $i);
+                $expected_size = min($configured_chunk_size, $total_size - $i * $configured_chunk_size);
+                if (!is_file($part)
+                    || (int)@filesize($part) !== $expected_size
+                    || (int)$idx_map[$i]['chunk_size'] !== $expected_size) {
+                    throw new \Exception('分片缺失或大小不正确:' . $i);
                 }
                 $in = fopen($part, 'rb');
                 if (!$in) {
                     throw new \Exception('分片读取失败:' . $i);
                 }
+                $part_hash = hash_init('sha256');
                 while (!feof($in)) {
                     $buf = fread($in, 8 * 1024 * 1024);
-                    if ($buf === false || ($buf !== '' && fwrite($out, $buf) === false)) {
+                    if ($buf === false || ($buf === '' && !feof($in))) {
                         fclose($in);
-                        throw new \Exception('合并写入失败');
+                        throw new \Exception('分片读取失败:' . $i);
+                    }
+                    if ($buf === '') break;
+                    hash_update($part_hash, $buf);
+                    $offset = 0;
+                    $length = strlen($buf);
+                    while ($offset < $length) {
+                        $written = fwrite($out, substr($buf, $offset));
+                        if ($written === false || $written === 0) {
+                            fclose($in);
+                            throw new \Exception('合并写入失败');
+                        }
+                        $offset += $written;
                     }
                 }
                 fclose($in);
+                if (!is_string($idx_map[$i]['chunk_hash'])
+                    || !hash_equals($idx_map[$i]['chunk_hash'], hash_final($part_hash))) {
+                    throw new \Exception('分片校验失败:' . $i);
+                }
             }
         } catch (\Exception $e) {
             fclose($out);
@@ -2255,9 +2368,9 @@ class File extends Base
         fclose($out);
 
         $real_size = (int)filesize($final_path);
-        if ($real_size <= 0) {
+        if ($real_size !== $total_size) {
             @unlink($final_path);
-            return json(['code' => 400, 'msg' => '文件内容为空']);
+            return json(['code' => 400, 'msg' => '合并文件大小与上传任务不一致']);
         }
 
         // 配额二次校验
@@ -2269,18 +2382,18 @@ class File extends Base
         }
 
         $file_hash = hash_file('sha256', $final_path);
+        if ($file_hash === false) {
+            @unlink($final_path);
+            return json(['code' => 500, 'msg' => '无法校验合并后的文件']);
+        }
         $rel_path = 'uploads/' . $date_path . '/' . $save_name;
 
         // 秒传去重
-        $exist_file = Db::name('files')
-            ->where('hash', $file_hash)
-            ->where('type', 1)
-            ->where('status', 1)
-            ->find();
+        $reusable_path = $this->findReusableFilePath($file_hash, $real_size);
 
-        if ($exist_file) {
+        if ($reusable_path !== null) {
             @unlink($final_path);
-            $rel_path = $exist_file['path'];
+            $rel_path = $reusable_path;
         }
 
         $file_id = Db::name('files')->insertGetId([
@@ -2317,7 +2430,7 @@ class File extends Base
 
         return json(['code' => 200, 'msg' => '上传完成', 'data' => [
             'file_id'    => $file_id,
-            'quick_upload' => !empty($exist_file),
+            'quick_upload' => $reusable_path !== null,
         ]]);
     }
 

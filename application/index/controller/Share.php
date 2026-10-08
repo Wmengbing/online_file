@@ -121,6 +121,9 @@ class Share extends Base
         }
         
         $new_status = $share['status'] == 1 ? 0 : 1;
+        if ($new_status === 1 && !Db::name('files')->where('id', $share['file_id'])->where('status', 1)->find()) {
+            return $this->error('原文件已删除，无法启用分享');
+        }
         
         Db::name('file_shares')
             ->where('id', $share_id)
@@ -142,6 +145,7 @@ class Share extends Base
             ->alias('s')
             ->join('files f', 'f.id = s.file_id')
             ->where('s.token', $token)
+            ->where('f.status', 1)
             ->field('s.*, f.name as file_name, f.type as file_type, f.size as file_size, f.path as file_path, f.mime_type, f.extension')
             ->find();
             
@@ -210,6 +214,7 @@ class Share extends Base
             ->alias('s')
             ->join('files f', 'f.id = s.file_id')
             ->where('s.token', $token)
+            ->where('f.status', 1)
             ->field('s.*, f.path as file_path, f.name as file_name, f.type as file_type')
             ->find();
             
