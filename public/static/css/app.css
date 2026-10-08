@@ -1012,16 +1012,40 @@ textarea {
 }
 
 .file-item[data-extension="doc"] .file-type-icon,
-.file-item[data-extension="docx"] .file-type-icon {
+.file-item[data-extension="docx"] .file-type-icon,
+.file-item[data-extension="dot"] .file-type-icon,
+.file-item[data-extension="dotx"] .file-type-icon,
+.file-item[data-extension="odt"] .file-type-icon,
+.file-item[data-extension="rtf"] .file-type-icon,
+.file-item[data-extension="wps"] .file-type-icon {
     color: #175cd3;
     background: #eff8ff;
 }
 
 .file-item[data-extension="xls"] .file-type-icon,
 .file-item[data-extension="xlsx"] .file-type-icon,
+.file-item[data-extension="xlsm"] .file-type-icon,
+.file-item[data-extension="xlsb"] .file-type-icon,
+.file-item[data-extension="xlt"] .file-type-icon,
+.file-item[data-extension="xltx"] .file-type-icon,
+.file-item[data-extension="ods"] .file-type-icon,
+.file-item[data-extension="et"] .file-type-icon,
 .file-item[data-extension="csv"] .file-type-icon {
     color: #027a48;
     background: #ecfdf3;
+}
+
+.file-item[data-extension="ppt"] .file-type-icon,
+.file-item[data-extension="pptx"] .file-type-icon,
+.file-item[data-extension="pptm"] .file-type-icon,
+.file-item[data-extension="pot"] .file-type-icon,
+.file-item[data-extension="potx"] .file-type-icon,
+.file-item[data-extension="pps"] .file-type-icon,
+.file-item[data-extension="ppsx"] .file-type-icon,
+.file-item[data-extension="odp"] .file-type-icon,
+.file-item[data-extension="dps"] .file-type-icon {
+    color: #c4320a;
+    background: #fff4ed;
 }
 
 .file-item[data-extension="zip"] .file-type-icon,

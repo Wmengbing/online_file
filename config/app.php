@@ -54,6 +54,8 @@ return [
     // 可选：LibreOffice/soffice 可执行文件路径，用于将 Office 文档转换为 PDF 预览。
     'office_converter'       => env('OFFICE_CONVERTER', ''),
     'office_preview_max_size'=> 209715200,
+    'office_preview_timeout' => 120,
+    'office_browser_preview_max_size' => 31457280,
 
     // +----------------------------------------------------------------------
     // | 模块设置

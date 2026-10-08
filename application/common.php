@@ -116,10 +116,27 @@ function get_mime_type($file_path, $name = '')
         'pdf'  => 'application/pdf',
         'doc'  => 'application/msword',
         'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'dot'  => 'application/msword',
+        'dotx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+        'odt'  => 'application/vnd.oasis.opendocument.text',
+        'wps'  => 'application/vnd.ms-works',
         'xls'  => 'application/vnd.ms-excel',
         'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'xlsm' => 'application/vnd.ms-excel.sheet.macroenabled.12',
+        'xlsb' => 'application/vnd.ms-excel.sheet.binary.macroenabled.12',
+        'xlt'  => 'application/vnd.ms-excel',
+        'xltx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.template',
+        'ods'  => 'application/vnd.oasis.opendocument.spreadsheet',
+        'et'   => 'application/vnd.ms-excel',
         'ppt'  => 'application/vnd.ms-powerpoint',
         'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'pptm' => 'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+        'pot'  => 'application/vnd.ms-powerpoint',
+        'potx' => 'application/vnd.openxmlformats-officedocument.presentationml.template',
+        'pps'  => 'application/vnd.ms-powerpoint',
+        'ppsx' => 'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+        'odp'  => 'application/vnd.oasis.opendocument.presentation',
+        'dps'  => 'application/vnd.ms-powerpoint',
         'rtf'  => 'application/rtf',
         // 文本
         'txt'      => 'text/plain',
@@ -517,7 +534,7 @@ function is_previewable_extension($extension)
     $image  = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
     $video  = ['mp4', 'webm', 'ogv', 'mov', 'm4v'];
     $audio  = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'opus'];
-    $office = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+    $office = office_preview_extensions();
 
     return in_array($ext, $image) || in_array($ext, $video) || in_array($ext, $audio) || $ext == 'pdf' || in_array($ext, $text) || in_array($ext, $office);
 }
@@ -534,11 +551,29 @@ function preview_type_of($extension)
     if (in_array($ext, ['mp4', 'webm', 'ogv', 'mov', 'm4v']))           return 'video';
     if (in_array($ext, ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'opus'])) return 'audio';
     if ($ext == 'pdf') return 'pdf';
-    if (in_array($ext, ['doc', 'docx'])) return 'word';
-    if (in_array($ext, ['xls', 'xlsx'])) return 'excel';
-    if (in_array($ext, ['ppt', 'pptx'])) return 'ppt';
+    if (in_array($ext, office_preview_extensions('word'), true)) return 'word';
+    if (in_array($ext, office_preview_extensions('excel'), true)) return 'excel';
+    if (in_array($ext, office_preview_extensions('ppt'), true)) return 'ppt';
     if (in_array($ext, $text)) return 'text';
     return 'unsupported';
+}
+
+/**
+ * Office formats supported by server-side conversion or browser fallback.
+ */
+function office_preview_extensions($type = '')
+{
+    static $groups = [
+        'word'  => ['doc', 'docx', 'dot', 'dotx', 'odt', 'rtf', 'wps'],
+        'excel' => ['xls', 'xlsx', 'xlsm', 'xlsb', 'xlt', 'xltx', 'ods', 'et'],
+        'ppt'   => ['ppt', 'pptx', 'pptm', 'pot', 'potx', 'pps', 'ppsx', 'odp', 'dps'],
+    ];
+
+    if ($type !== '') {
+        return isset($groups[$type]) ? $groups[$type] : [];
+    }
+
+    return array_merge($groups['word'], $groups['excel'], $groups['ppt']);
 }
 
 /**

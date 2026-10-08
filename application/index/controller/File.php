@@ -976,6 +976,7 @@ class File extends Base
         $original_preview_type = $p_type;
         $preview_notice = '';
         $preview_mode = 'native';
+        $browser_office_allowed = true;
         $raw_url = url('index/file/raw', ['file_id' => $file_id]);
 
         if (in_array($p_type, ['word', 'excel', 'ppt'], true)) {
@@ -989,6 +990,10 @@ class File extends Base
             } else {
                 $preview_mode = 'browser-office';
                 $preview_notice = $conversion_reason;
+                if ((int)$file['size'] > (int)app_cfg('office_browser_preview_max_size', 31457280)) {
+                    $browser_office_allowed = false;
+                    $preview_notice .= ' 文件较大，为避免浏览器卡顿，已停止客户端解析。';
+                }
             }
         }
 
@@ -997,6 +1002,7 @@ class File extends Base
         $this->assign('original_preview_type', $original_preview_type);
         $this->assign('preview_mode', $preview_mode);
         $this->assign('preview_notice', $preview_notice);
+        $this->assign('browser_office_allowed', $browser_office_allowed);
         $this->assign('raw_url', $raw_url);
         $this->assign('download_url', url('index/file/download', ['file_id' => $file_id]));
 
@@ -1057,7 +1063,7 @@ class File extends Base
     private function getConvertedOfficePreviewPath($file, &$reason = '')
     {
         $extension = strtolower((string)$file['extension']);
-        if (!in_array($extension, ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'], true)) {
+        if (!in_array($extension, office_preview_extensions(), true)) {
             $reason = '该文件不需要 Office 转换';
             return null;
         }
@@ -1074,7 +1080,7 @@ class File extends Base
 
         $converter = $this->locateOfficeConverter();
         if (!$converter) {
-            $reason = '服务器未配置 Office 转换组件，将尝试浏览器兼容预览；旧版格式可能需要下载后打开。';
+            $reason = '服务器未检测到 LibreOffice，将尝试浏览器兼容预览；旧版格式需要安装转换组件。';
             return null;
         }
         if (!$this->isFunctionEnabled('proc_open')) {
@@ -1084,7 +1090,7 @@ class File extends Base
 
         $cache_dir = Env::get('root_path') . 'runtime' . DIRECTORY_SEPARATOR . 'preview_cache';
         create_directory($cache_dir);
-        $cache_key = sha1(($file['hash'] ?: $file['path']) . '|' . $file['size'] . '|' . $file['updated_at']);
+        $cache_key = sha1('office-preview-v2|' . ($file['hash'] ?: $file['path']) . '|' . $file['size'] . '|' . $file['updated_at']);
         $pdf_path = $cache_dir . DIRECTORY_SEPARATOR . $cache_key . '.pdf';
         if (is_file($pdf_path) && filesize($pdf_path) > 0) {
             return $pdf_path;
@@ -1111,8 +1117,20 @@ class File extends Base
             return null;
         }
 
+        $profile_dir = $cache_dir . DIRECTORY_SEPARATOR . 'profiles' . DIRECTORY_SEPARATOR
+            . $cache_key . '_' . getmypid() . '_' . bin2hex(random_bytes(4));
+        create_directory($profile_dir);
+        if (!is_dir($profile_dir)) {
+            @unlink($temp_input);
+            flock($lock, LOCK_UN);
+            fclose($lock);
+            $reason = '无法创建文档转换工作目录。';
+            return null;
+        }
+
         $command = [
             $converter,
+            '-env:UserInstallation=' . $this->pathToFileUri($profile_dir),
             '--headless',
             '--nologo',
             '--nodefault',
@@ -1131,6 +1149,9 @@ class File extends Base
         $pipes = [];
         $process = @proc_open($command, $descriptor_spec, $pipes, $cache_dir, null, ['bypass_shell' => true]);
         $timed_out = false;
+        $stdout = '';
+        $stderr = '';
+        $timeout = max(10, (int)app_cfg('office_preview_timeout', 120));
 
         if (is_resource($process)) {
             fclose($pipes[0]);
@@ -1138,23 +1159,28 @@ class File extends Base
             stream_set_blocking($pipes[2], false);
             $started_at = microtime(true);
             do {
+                $stdout .= stream_get_contents($pipes[1]);
+                $stderr .= stream_get_contents($pipes[2]);
                 $status = proc_get_status($process);
                 if (!$status['running']) break;
-                if (microtime(true) - $started_at > 90) {
+                if (microtime(true) - $started_at > $timeout) {
                     $timed_out = true;
                     proc_terminate($process);
                     break;
                 }
                 usleep(100000);
             } while (true);
-            stream_get_contents($pipes[1]);
-            stream_get_contents($pipes[2]);
+            $stdout .= stream_get_contents($pipes[1]);
+            $stderr .= stream_get_contents($pipes[2]);
             fclose($pipes[1]);
             fclose($pipes[2]);
             proc_close($process);
+        } else {
+            $stderr = 'proc_open could not start the converter';
         }
 
         @unlink($temp_input);
+        $this->removePreviewDirectory($profile_dir);
         flock($lock, LOCK_UN);
         fclose($lock);
 
@@ -1162,23 +1188,59 @@ class File extends Base
             return $pdf_path;
         }
 
-        $reason = $timed_out
-            ? '文档转换超时，请下载后查看。'
-            : '文档转换失败，将尝试浏览器兼容预览。';
+        if ($timed_out) {
+            $reason = '文档转换超时，请下载后查看。';
+        } else {
+            $reason = '文档转换失败，将尝试浏览器兼容预览。';
+            $detail = trim($stderr . PHP_EOL . $stdout);
+            error_log('[office-preview] file_id=' . (int)$file['id'] . ' conversion failed: '
+                . substr(preg_replace('/\s+/', ' ', $detail), 0, 1200));
+        }
         return null;
+    }
+
+    private function pathToFileUri($path)
+    {
+        $normalized = str_replace('\\', '/', $path);
+        if (preg_match('/^[A-Za-z]:\//', $normalized)) {
+            return 'file:///' . $normalized;
+        }
+        return 'file://' . ($normalized !== '' && $normalized[0] === '/' ? '' : '/') . $normalized;
+    }
+
+    private function removePreviewDirectory($directory)
+    {
+        if (!is_dir($directory)) return;
+
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($iterator as $item) {
+            if ($item->isDir()) @rmdir($item->getPathname());
+            else @unlink($item->getPathname());
+        }
+        @rmdir($directory);
     }
 
     private function locateOfficeConverter()
     {
         $configured = trim((string)app_cfg('office_converter', ''));
-        $candidates = array_filter([
-            $configured,
+        // open_basedir may intentionally prevent probing /usr/bin. A converter
+        // path explicitly set by the administrator in .env is trusted and can
+        // still be passed directly to proc_open without broadening that policy.
+        if ($configured !== '' && strpos($configured, "\0") === false
+            && ($configured[0] === '/' || preg_match('/^[A-Za-z]:[\\\\\/]/', $configured))) {
+            return $configured;
+        }
+
+        $candidates = [
             'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
             'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe',
             '/usr/bin/libreoffice',
             '/usr/bin/soffice',
             '/usr/local/bin/libreoffice',
-        ]);
+        ];
 
         $path_env = (string)getenv('PATH');
         foreach (explode(PATH_SEPARATOR, $path_env) as $path_dir) {

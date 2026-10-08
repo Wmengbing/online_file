@@ -3,11 +3,11 @@
 {block name="title"}预览：{$file.name} - 文件共享系统{/block}
 
 {block name="head"}
-{if $preview_mode == 'browser-office' && $original_preview_type == 'excel'}
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+{if $preview_mode == 'browser-office' && $browser_office_allowed && $original_preview_type == 'excel'}
+<script src="/static/vendor/xlsx/0.20.3/xlsx.full.min.js"></script>
 {/if}
-{if $preview_mode == 'browser-office' && $original_preview_type == 'word'}
-<script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+{if $preview_mode == 'browser-office' && $browser_office_allowed && $original_preview_type == 'word'}
+<script src="/static/vendor/mammoth/1.13.0/mammoth.browser.min.js"></script>
 {/if}
 {/block}
 
@@ -86,7 +86,7 @@
         </div>
 
         {elseif $p_type == 'word' || $p_type == 'excel' || $p_type == 'ppt'}
-        <div class="office-preview-container" data-office-type="{$p_type}" data-extension="{$file.extension}" data-raw-url="{$raw_url}">
+        <div class="office-preview-container" data-office-type="{$p_type}" data-extension="{$file.extension}" data-raw-url="{$raw_url}" data-browser-enabled="{if $browser_office_allowed}1{else}0{/if}">
             <div id="officeLoading" class="preview-loading"><i class="fa fa-circle-o-notch fa-spin"></i><span>正在解析文档…</span></div>
             <div id="officeContent" class="office-content"></div>
             <div id="officeError" class="preview-inline-error">
@@ -197,6 +197,9 @@ document.getElementById('pdfZoomIn').addEventListener('click', async () => { zoo
     var fileType = container.getAttribute('data-office-type');
     var extension = String(container.getAttribute('data-extension') || '').toLowerCase();
     var rawUrl = container.getAttribute('data-raw-url');
+    var browserEnabled = container.getAttribute('data-browser-enabled') === '1';
+    var browserWordFormats = ['docx', 'dotx'];
+    var browserExcelFormats = ['xls', 'xlsx', 'xlsm', 'xlsb', 'xlt', 'xltx', 'ods'];
     var loading = document.getElementById('officeLoading');
     var content = document.getElementById('officeContent');
     var errorBox = document.getElementById('officeError');
@@ -213,8 +216,11 @@ document.getElementById('pdfZoomIn').addEventListener('click', async () => { zoo
             var attrs = Array.prototype.slice.call(this.attributes || []);
             for (var i = 0; i < attrs.length; i++) {
                 var name = attrs[i].name.toLowerCase();
-                var value = String(attrs[i].value || '').toLowerCase();
-                if (name.indexOf('on') === 0 || ((name === 'href' || name === 'src') && value.indexOf('javascript:') === 0)) {
+                var value = String(attrs[i].value || '').trim().toLowerCase();
+                var unsafeAttribute = name.indexOf('on') === 0 || name === 'style' || name === 'srcdoc';
+                if (name === 'href' && !/^(https?:|mailto:|tel:|#|\/)/.test(value)) unsafeAttribute = true;
+                if (name === 'src' && !/^(https?:|\/|data:image\/(png|gif|jpe?g|webp|bmp);base64,)/.test(value)) unsafeAttribute = true;
+                if (unsafeAttribute) {
                     this.removeAttribute(attrs[i].name);
                 }
             }
@@ -236,12 +242,21 @@ document.getElementById('pdfZoomIn').addEventListener('click', async () => { zoo
         content.style.display = 'block';
     }
 
-    if (fileType === 'ppt') {
-        showError('演示文稿需要服务端转换', '当前服务器未安装转换组件，请下载后使用 PowerPoint 或兼容软件打开。');
+    if (!browserEnabled) {
+        showError('文件较大，已停止浏览器解析', '请下载原文件查看，或联系管理员检查服务器转换组件。');
         return;
     }
-    if (fileType === 'word' && extension === 'doc') {
-        showError('旧版 Word 格式无法在浏览器解析', '安装 LibreOffice 转换组件后可转为 PDF 预览，当前请下载后打开。');
+
+    if (fileType === 'ppt') {
+        showError('演示文稿需要服务端转换', '服务器转换失败或未配置 LibreOffice，请下载后使用 PowerPoint 或兼容软件打开。');
+        return;
+    }
+    if (fileType === 'word' && browserWordFormats.indexOf(extension) === -1) {
+        showError('该文档格式无法在浏览器直接解析', 'DOC、RTF、ODT、WPS 等格式需要 LibreOffice 转为 PDF，当前请下载后打开。');
+        return;
+    }
+    if (fileType === 'excel' && browserExcelFormats.indexOf(extension) === -1) {
+        showError('该表格格式无法在浏览器直接解析', '此格式需要 LibreOffice 转为 PDF，当前请下载后打开。');
         return;
     }
 
@@ -250,7 +265,7 @@ document.getElementById('pdfZoomIn').addEventListener('click', async () => { zoo
         .then(function(arrayBuffer) {
             if (fileType === 'word') {
                 if (typeof mammoth === 'undefined') {
-                    showError('文档解析组件加载失败', '网络不可用时可配置 LibreOffice 服务端转换，或直接下载文件。');
+                    showError('文档解析组件加载失败', '请联系管理员检查本地预览资源，或直接下载文件。');
                     return;
                 }
                 mammoth.convertToHtml({arrayBuffer: arrayBuffer})
@@ -260,32 +275,41 @@ document.getElementById('pdfZoomIn').addEventListener('click', async () => { zoo
             }
 
             if (typeof XLSX === 'undefined') {
-                showError('表格解析组件加载失败', '网络不可用时可配置 LibreOffice 服务端转换，或直接下载文件。');
+                showError('表格解析组件加载失败', '请联系管理员检查本地预览资源，或直接下载文件。');
                 return;
             }
             try {
-                var workbook = XLSX.read(arrayBuffer, {type: 'array'});
+                var workbook = XLSX.read(arrayBuffer, {
+                    type: 'array',
+                    dense: true,
+                    cellFormula: false,
+                    cellHTML: false,
+                    cellStyles: false
+                });
                 var html = '<div class="office-workbook">';
-                workbook.SheetNames.forEach(function(sheetName) {
-                    var rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {header: 1, defval: ''});
+                workbook.SheetNames.slice(0, 20).forEach(function(sheetName) {
+                    var rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {header: 1, defval: '', raw: false, blankrows: false});
                     html += '<section class="office-sheet"><h3><i class="fa fa-table"></i> ' + escapeHtml(sheetName) + '</h3>';
                     if (!rows.length) {
                         html += '<p class="text-muted">此工作表为空</p></section>';
                         return;
                     }
                     html += '<div class="office-table-wrap"><table><tbody>';
-                    rows.slice(0, 2000).forEach(function(row, rowIndex) {
+                    var columnsTruncated = false;
+                    rows.slice(0, 1000).forEach(function(row, rowIndex) {
                         html += '<tr>';
-                        row.forEach(function(cell) {
+                        if (row.length > 100) columnsTruncated = true;
+                        row.slice(0, 100).forEach(function(cell) {
                             var tag = rowIndex === 0 ? 'th' : 'td';
                             html += '<' + tag + '>' + escapeHtml(cell) + '</' + tag + '>';
                         });
                         html += '</tr>';
                     });
                     html += '</tbody></table></div>';
-                    if (rows.length > 2000) html += '<p class="preview-limit-note">仅显示前 2000 行，请下载查看完整内容。</p>';
+                    if (rows.length > 1000 || columnsTruncated) html += '<p class="preview-limit-note">为保持页面流畅，仅显示前 1000 行、100 列，请下载查看完整内容。</p>';
                     html += '</section>';
                 });
+                if (workbook.SheetNames.length > 20) html += '<p class="preview-limit-note">仅显示前 20 个工作表，请下载查看完整内容。</p>';
                 showContent(html + '</div>');
             } catch (error) {
                 showError('表格解析失败', '文件可能使用了浏览器不支持的旧格式或复杂特性。');

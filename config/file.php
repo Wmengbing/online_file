@@ -9,5 +9,7 @@ return [
     'allowed_extensions'    => [],
     'office_converter'      => env('OFFICE_CONVERTER', ''),
     'office_preview_max_size' => 209715200,
+    'office_preview_timeout'  => 120,
+    'office_browser_preview_max_size' => 31457280,
     'recycle_expire_days'   => 30,
 ];

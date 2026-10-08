@@ -148,6 +148,16 @@ openssl rand -hex 32
 
 如果暂时没有配置 HTTPS，将 `COOKIE_SECURE` 临时设为 `false`；启用证书后必须改回 `true`。
 
+Office 预览依赖服务器安装 LibreOffice，并且 `OFFICE_CONVERTER` 必须填写 `command -v libreoffice` 返回的绝对路径。宝塔 PHP 7.4 的“禁用函数”中不能包含 `proc_open`；修改后重载 PHP-FPM。可用以下命令检查：
+
+```bash
+command -v libreoffice
+/usr/bin/libreoffice --headless --version
+sudo -u www /usr/bin/libreoffice --headless --version
+```
+
+服务器还应安装常用中文字体，否则转换后的 PDF 可能出现缺字或版式偏差。应用不会扩大 `open_basedir` 到系统命令目录；只会调用 `.env` 中由管理员明确配置的转换程序绝对路径。
+
 设置权限：
 
 ```bash
