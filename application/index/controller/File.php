@@ -1092,7 +1092,7 @@ class File extends Base
         create_directory($cache_dir);
         $cache_key = sha1('office-preview-v2|' . ($file['hash'] ?: $file['path']) . '|' . $file['size'] . '|' . $file['updated_at']);
         $pdf_path = $cache_dir . DIRECTORY_SEPARATOR . $cache_key . '.pdf';
-        if (is_file($pdf_path) && filesize($pdf_path) > 0) {
+        if ($this->isValidPreviewPdf($pdf_path)) {
             return $pdf_path;
         }
 
@@ -1103,25 +1103,40 @@ class File extends Base
             return null;
         }
 
-        if (is_file($pdf_path) && filesize($pdf_path) > 0) {
+        if ($this->isValidPreviewPdf($pdf_path)) {
             flock($lock, LOCK_UN);
             fclose($lock);
             return $pdf_path;
         }
 
-        $temp_input = $cache_dir . DIRECTORY_SEPARATOR . $cache_key . '.' . $extension;
+        // Old conversions may have left a partially written PDF in the cache.
+        if (is_file($pdf_path)) {
+            @unlink($pdf_path);
+        }
+
+        $work_dir = $cache_dir . DIRECTORY_SEPARATOR . 'work' . DIRECTORY_SEPARATOR
+            . $cache_key . '_' . getmypid() . '_' . bin2hex(random_bytes(4));
+        create_directory($work_dir);
+        if (!is_dir($work_dir)) {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+            $reason = '无法创建文档转换工作目录。';
+            return null;
+        }
+
+        $temp_input = $work_dir . DIRECTORY_SEPARATOR . 'source.' . $extension;
         if (!@copy($source_path, $temp_input)) {
+            $this->removePreviewDirectory($work_dir);
             flock($lock, LOCK_UN);
             fclose($lock);
             $reason = '无法读取文档内容进行转换。';
             return null;
         }
 
-        $profile_dir = $cache_dir . DIRECTORY_SEPARATOR . 'profiles' . DIRECTORY_SEPARATOR
-            . $cache_key . '_' . getmypid() . '_' . bin2hex(random_bytes(4));
+        $profile_dir = $work_dir . DIRECTORY_SEPARATOR . 'profile';
         create_directory($profile_dir);
         if (!is_dir($profile_dir)) {
-            @unlink($temp_input);
+            $this->removePreviewDirectory($work_dir);
             flock($lock, LOCK_UN);
             fclose($lock);
             $reason = '无法创建文档转换工作目录。';
@@ -1138,7 +1153,7 @@ class File extends Base
             '--convert-to',
             'pdf',
             '--outdir',
-            $cache_dir,
+            $work_dir,
             $temp_input,
         ];
         $descriptor_spec = [
@@ -1179,12 +1194,19 @@ class File extends Base
             $stderr = 'proc_open could not start the converter';
         }
 
-        @unlink($temp_input);
-        $this->removePreviewDirectory($profile_dir);
+        $converted_pdf = $work_dir . DIRECTORY_SEPARATOR . 'source.pdf';
+        $converted_ok = false;
+        if ($this->isValidPreviewPdf($converted_pdf)) {
+            $converted_ok = @rename($converted_pdf, $pdf_path);
+            if (!$converted_ok) $stderr .= ' Could not move converted PDF into cache.';
+        } else {
+            $stderr .= ' Converter did not produce a complete PDF.';
+        }
+        $this->removePreviewDirectory($work_dir);
         flock($lock, LOCK_UN);
         fclose($lock);
 
-        if (is_file($pdf_path) && filesize($pdf_path) > 0) {
+        if ($converted_ok) {
             return $pdf_path;
         }
 
@@ -1197,6 +1219,22 @@ class File extends Base
                 . substr(preg_replace('/\s+/', ' ', $detail), 0, 1200));
         }
         return null;
+    }
+
+    private function isValidPreviewPdf($path)
+    {
+        if (!is_file($path)) return false;
+        $size = @filesize($path);
+        if ($size === false || $size < 100) return false;
+
+        $handle = @fopen($path, 'rb');
+        if (!$handle) return false;
+        $header = fread($handle, 5);
+        fseek($handle, max(0, $size - 2048));
+        $tail = stream_get_contents($handle);
+        fclose($handle);
+
+        return $header === '%PDF-' && $tail !== false && strpos($tail, '%%EOF') !== false;
     }
 
     private function pathToFileUri($path)

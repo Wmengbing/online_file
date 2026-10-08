@@ -75,7 +75,7 @@
             <div class="pdf-canvas-wrap" id="pdfCanvasWrap">
                 <div class="preview-loading" id="pdfLoading"><i class="fa fa-circle-o-notch fa-spin"></i><span>正在加载文档…</span></div>
                 <canvas id="pdfCanvas"></canvas>
-                <div class="preview-inline-error" id="pdfError"><i class="fa fa-exclamation-triangle"></i><strong>PDF 加载失败</strong><span>可以下载原文件后查看。</span><a href="{$download_url}" class="btn btn-primary">下载文件</a></div>
+                <div class="preview-inline-error" id="pdfError"><i class="fa fa-exclamation-triangle"></i><strong>PDF 加载失败</strong><span id="pdfErrorMessage">可以下载原文件后查看。</span>{if $preview_mode == 'converted'}<a href="{$raw_url}" target="_blank" rel="noopener" class="btn btn-default">直接打开转换后的 PDF</a>{/if}<a href="{$download_url}" class="btn btn-primary">下载原文件</a></div>
             </div>
         </div>
 
@@ -135,7 +135,18 @@ let pageNumber = 1;
 let zoom = 1;
 let renderTask = null;
 
-function showPdfError() {
+function showPdfError(error) {
+    const message = document.getElementById('pdfErrorMessage');
+    if (message && error) {
+        const name = error.name || '';
+        if (name === 'InvalidPDFException') {
+            message.textContent = '转换后的 PDF 内容无效，请下载原文件或联系管理员。';
+        } else if (name === 'UnexpectedResponseException' || name === 'MissingPDFException') {
+            message.textContent = '预览文件请求失败，请刷新页面重试。';
+        } else if (name === 'PasswordException') {
+            message.textContent = '文档受密码保护，请下载原文件后打开。';
+        }
+    }
     loading.style.display = 'none';
     canvas.style.display = 'none';
     errorBox.classList.add('is-visible');
@@ -161,6 +172,7 @@ async function renderPage() {
     await renderTask.promise;
     loading.style.display = 'none';
     canvas.style.display = 'block';
+    errorBox.classList.remove('is-visible');
     document.getElementById('pdfPage').textContent = pageNumber;
     document.getElementById('pdfPrev').disabled = pageNumber <= 1;
     document.getElementById('pdfNext').disabled = pageNumber >= documentProxy.numPages;
@@ -179,7 +191,7 @@ try {
     await renderPage();
 } catch (error) {
     console.error('PDF preview failed', error);
-    showPdfError();
+    showPdfError(error);
 }
 
 document.getElementById('pdfPrev').addEventListener('click', async () => { if (pageNumber > 1) { pageNumber--; await renderPage(); } });
@@ -352,9 +364,13 @@ document.getElementById('pdfZoomIn').addEventListener('click', async () => { zoo
             if (loading && loading.style.display !== 'none') {
                 loading.style.display = 'none';
                 if (canvas) canvas.style.display = 'none';
-                if (error) error.classList.add('is-visible');
+                if (error) {
+                    var message = document.getElementById('pdfErrorMessage');
+                    if (message) message.textContent = '加载超过 60 秒。请刷新重试，或下载文件查看。';
+                    error.classList.add('is-visible');
+                }
             }
-        }, 15000);
+        }, 60000);
     }
 })();
 </script>
