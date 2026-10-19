@@ -69,6 +69,9 @@
         font-weight: 600;
         color: #1e293b;
     }
+    .task-actions {
+        white-space: nowrap;
+    }
     .status-badge {
         display: inline-block;
         padding: 2px 10px;
@@ -79,6 +82,10 @@
     .status-uploading {
         background: #dbeafe;
         color: #2563eb;
+    }
+    .status-paused {
+        background: #fef3c7;
+        color: #92400e;
     }
     .status-done {
         background: #d1fae5;
@@ -113,16 +120,16 @@
         <div class="content-box upload-tasks-page">
             <div class="upload-tasks-header">
                 <h3><i class="fa fa-tasks"></i> 上传任务管理</h3>
-                <a href="{:url('index/file/upload', ['parent_id' => $parent_id])}" class="btn btn-primary btn-sm"><i class="fa fa-upload"></i> 继续上传</a>
+                <a href="{:url('index/file/upload', ['parent_id' => $parent_id])}" class="btn btn-primary btn-sm" target="_blank" rel="noopener"><i class="fa fa-upload"></i> 新标签页上传</a>
             </div>
             <p class="text-muted">
-                查看所有上传任务进度，即使关闭页面后仍可在此查看上传状态
+                切换或关闭上传页会中断传输；未完成的分片任务可重新选择原文件续传。长时间无进展会显示“待续传”。
             </p>
             <hr>
 
             <div class="filter-tabs">
                 <button class="btn btn-default btn-sm {if $status === ''}active{/if}" onclick="filterTasks('')">全部</button>
-                <button class="btn btn-default btn-sm {if $status === '0'}active{/if}" onclick="filterTasks('0')">上传中</button>
+                <button class="btn btn-default btn-sm {if $status === '0'}active{/if}" onclick="filterTasks('0')">未完成</button>
                 <button class="btn btn-default btn-sm {if $status === '1'}active{/if}" onclick="filterTasks('1')">已完成</button>
                 <button class="btn btn-default btn-sm {if $status === '2'}active{/if}" onclick="filterTasks('2')">失败</button>
             </div>
@@ -142,7 +149,7 @@
                             <th width="200">进度</th>
                             <th width="100">状态</th>
                             <th width="160">创建时间</th>
-                            <th width="80">操作</th>
+                            <th width="120">操作</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -156,16 +163,19 @@
                                 </div>
                             </td>
                             <td>
-                                <span class="status-badge {if $task.status == 0}status-uploading{elseif $task.status == 1}status-done{else}status-error{/if}">
+                                <span class="status-badge {if $task.is_stale}status-paused{elseif $task.status == 0}status-uploading{elseif $task.status == 1}status-done{else}status-error{/if}">
                                     {$task.status_text}
                                 </span>
                             </td>
                             <td class="text-muted">{$task.created_at}</td>
-                            <td>
-                                {if $task.status != 0}
-                                <button class="btn btn-xs btn-danger" onclick="deleteTask({$task.id})"><i class="fa fa-trash"></i></button>
+                            <td class="task-actions">
+                                {if $task.status == 0}
+                                <a class="btn btn-xs btn-primary" href="{:url('index/file/upload', ['parent_id' => $task.parent_id, 'resume_task_id' => $task.id])}" target="_blank" rel="noopener">续传</a>
+                                {if $task.is_stale}
+                                <button class="btn btn-xs btn-danger" onclick="deleteTask({$task.id})" title="删除中断任务和分片"><i class="fa fa-trash"></i></button>
+                                {/if}
                                 {else}
-                                <span class="text-muted">-</span>
+                                <button class="btn btn-xs btn-danger" onclick="deleteTask({$task.id})"><i class="fa fa-trash"></i></button>
                                 {/if}
                             </td>
                         </tr>
@@ -199,22 +209,23 @@ function deleteTask(taskId) {
     });
 }
 
-// 自动刷新上传中的任务
+// 自动刷新未完成的任务（包括待续传状态）
 {if $status === '' || $status === '0'}
 var refreshTimer = setInterval(function() {
-    var uploadingRows = document.querySelectorAll('.status-uploading');
+    var uploadingRows = document.querySelectorAll('.status-uploading, .status-paused');
     if (uploadingRows.length > 0) {
         $.get('{:url("index/file/getUploadTasks")}' + (location.search ? location.search : ''), function(res) {
-            if (res.code == 200 && res.data.length > 0) {
+            if (res.code == 200) {
                 // 检查是否有状态变化
-                var hasChange = false;
+                var hasChange = res.data.length !== document.querySelectorAll('tr[data-task-id]').length;
                 res.data.forEach(function(task) {
                     var row = document.querySelector('tr[data-task-id="' + task.id + '"]');
                     if (row) {
                         var oldProgress = row.querySelector('.progress-bar');
                         if (oldProgress) {
                             var oldWidth = parseInt(oldProgress.style.width) || 0;
-                            if (oldWidth !== task.progress) {
+                            var oldStatus = row.querySelector('.status-badge');
+                            if (oldWidth !== task.progress || (oldStatus && oldStatus.textContent.trim() !== task.status_text)) {
                                 hasChange = true;
                             }
                         }

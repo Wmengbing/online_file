@@ -8,13 +8,30 @@
         <div class="page-heading-main">
             <span class="page-eyebrow">高速传输</span>
             <h1 class="page-title">上传文件与文件夹</h1>
-            <p class="page-description">保留文件夹层级；大于 {$chunk_size_text} 的文件自动分片，网络中断后可继续上传。</p>
+            <p class="page-description">保留文件夹层级；大于 {$chunk_size_text} 的文件自动分片。上传时可在其他标签页继续浏览。</p>
         </div>
         <div class="page-heading-actions">
-            <a href="{:url('index/file/uploadTasks')}" class="btn btn-default"><i class="fa fa-tasks"></i> 上传任务</a>
+            <a href="{:url('index/file/uploadTasks')}" class="btn btn-default" target="_blank" rel="noopener"><i class="fa fa-tasks"></i> 上传任务 <i class="fa fa-external-link"></i></a>
             <a href="{:url('index/file/index', ['parent_id' => $parent_id])}" class="btn btn-default"><i class="fa fa-angle-left"></i> 返回文件列表</a>
         </div>
     </header>
+
+    <div id="uploadActiveNotice" class="upload-active-notice" role="status" hidden>
+        <span class="upload-active-icon"><i class="fa fa-cloud-upload"></i></span>
+        <div class="upload-active-copy">
+            <strong>文件正在上传，请保持此标签页打开</strong>
+            <p>想查看其他页面？请用新标签页，保留此页可继续上传；关闭或刷新此页会中断传输。</p>
+        </div>
+        <a class="btn btn-primary btn-sm" href="{:url('index/file/index', ['parent_id' => $parent_id])}" target="_blank" rel="noopener"><i class="fa fa-external-link"></i> 新标签页浏览文件</a>
+    </div>
+
+    <div id="resumeTaskCard" class="alert alert-info upload-resume-card" hidden>
+        <strong><i class="fa fa-refresh"></i> 继续未完成的上传</strong>
+        <p class="upload-resume-description" id="resumeTaskDescription"></p>
+        <p class="small upload-resume-note">请重新选择同一个原文件（文件名和大小必须一致）。已接收的分片会跳过；续传时也请保持此标签页打开。</p>
+        <button type="button" class="btn btn-primary btn-sm" id="resumeSelectBtn"><i class="fa fa-folder-open-o"></i> 选择原文件并续传</button>
+        <input type="file" id="resumeFileInput" class="sr-only" tabindex="-1">
+    </div>
 
     <div class="upload-landing">
         <div id="dropZone" class="upload-dropzone" tabindex="0" role="button" aria-label="拖放或选择要上传的文件">
@@ -38,7 +55,7 @@
                 <li><span><i class="fa fa-refresh"></i></span><div><strong>断点续传</strong><small>大文件失败后可继续补传分片</small></div></li>
                 <li><span><i class="fa fa-bolt"></i></span><div><strong>自动秒传</strong><small>相同内容无需重复写入磁盘</small></div></li>
             </ul>
-            <div class="upload-guide-tip"><i class="fa fa-info-circle"></i> 文件将上传到当前所在目录</div>
+            <div class="upload-guide-tip"><i class="fa fa-info-circle"></i> 保持上传标签页打开，可同时在其他标签页浏览文件。</div>
         </aside>
     </div>
 
@@ -60,17 +77,61 @@
         </div>
     </div>
 </section>
+
+<div id="uploadLeaveDialog" class="upload-leave-overlay" hidden>
+    <div class="upload-leave-panel" role="dialog" aria-modal="true" aria-labelledby="uploadLeaveTitle" aria-describedby="uploadLeaveDescription">
+        <span class="upload-leave-icon"><i class="fa fa-exclamation-triangle"></i></span>
+        <h2 id="uploadLeaveTitle">上传还没有完成</h2>
+        <p id="uploadLeaveDescription">如果在当前标签页离开，正在传输的文件会中断。你可以在新标签页打开目标页面，保留这里继续上传。</p>
+        <div class="upload-leave-actions">
+            <button type="button" id="uploadOpenNewTab" class="btn btn-primary"><i class="fa fa-external-link"></i> 新标签页打开，保留上传</button>
+            <button type="button" id="uploadStayHere" class="btn btn-default">留在上传页</button>
+        </div>
+        <button type="button" id="uploadLeaveAnyway" class="upload-leave-danger">仍要在当前页离开（上传会中断）</button>
+    </div>
+</div>
 {/block}
 
 {block name="script"}
 <script>
 var PARENT_ID = {$parent_id};
 var CHUNK_SIZE = {$chunk_size};
+var RESUME_TASK_ID = {$resume_task_id};
 var uploads = [];       // 队列
 var running = 0;
 var MAX_CONCURRENT = 2;
 var CHUNK_CONCURRENT = 3;
 var summaryShown = false;   // 本批次完成提示只弹一次
+var resumeTask = null;
+var pendingNavigation = null;
+var allowNavigation = false;
+
+function warnBeforeLeaving(event) {
+    if (running <= 0 || allowNavigation) return;
+    event.preventDefault();
+    event.returnValue = true;
+}
+
+function updateUploadNotice() {
+    $('#uploadActiveNotice').prop('hidden', running <= 0);
+}
+
+function closeUploadLeaveDialog() {
+    pendingNavigation = null;
+    $('#uploadLeaveDialog').prop('hidden', true);
+}
+
+function showUploadLeaveDialog(destination) {
+    pendingNavigation = destination;
+    var loggingOut = destination === 'logout';
+    $('#uploadLeaveDescription').text(loggingOut
+        ? '退出登录会中断正在传输的文件。请先等待上传完成，或确认中断后退出。'
+        : '如果在当前标签页离开，正在传输的文件会中断。你可以在新标签页打开目标页面，保留这里继续上传。');
+    $('#uploadOpenNewTab').prop('hidden', loggingOut);
+    $('#uploadLeaveAnyway').text(loggingOut ? '仍要退出登录（上传会中断）' : '仍要在当前页离开（上传会中断）');
+    $('#uploadLeaveDialog').prop('hidden', false);
+    $('#uploadStayHere').focus();
+}
 
 
 // ---------- 文件夹选择 ----------
@@ -352,7 +413,9 @@ function pumpQueue() {
         if (!u) break;
         u.status = 'running';
         renderQueue();
+        if (running === 0) window.addEventListener('beforeunload', warnBeforeLeaving);
         running++;
+        updateUploadNotice();
         (function(item) {
             item.needChunk ? uploadChunked(item) : uploadSingle(item);
         })(u);
@@ -378,6 +441,8 @@ function pumpQueue() {
 
 function finishUpload(item, ok) {
     running--;
+    if (running === 0) window.removeEventListener('beforeunload', warnBeforeLeaving);
+    updateUploadNotice();
     item.status = ok ? 'done' : 'error';
     if (!ok && item.errorMsg.indexOf('空间') >= 0) {
         item.errorMsg = '存储空间不足';
@@ -605,6 +670,102 @@ $(function() {
     var $zone = $('#dropZone');
     var $fileInput = $('#fileInput');
     var isTriggering = false;
+
+    // 站内跳转先给出可读的选择；刷新、关闭标签页等仍由浏览器原生确认兜底。
+    document.addEventListener('click', function(event) {
+        if (running <= 0 || allowNavigation || event.defaultPrevented || event.button !== 0
+            || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        var link = $(event.target).closest('a[href]')[0];
+        if (!link || link.hasAttribute('download') || (link.target && link.target !== '_self')) return;
+        var href = link.getAttribute('href') || '';
+        if (!href || href.charAt(0) === '#') {
+            if (link.id !== 'logoutLink') return;
+        } else if (link.protocol !== window.location.protocol || link.host !== window.location.host) {
+            return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        showUploadLeaveDialog(link.id === 'logoutLink' ? 'logout' : link.href);
+    }, true);
+
+    $('#uploadOpenNewTab').on('click', function() {
+        if (!pendingNavigation || pendingNavigation === 'logout') return;
+        var opened = window.open(pendingNavigation, '_blank');
+        if (!opened) {
+            layer.msg('浏览器阻止了新标签页，请允许弹出窗口后重试', {icon: 0});
+            return;
+        }
+        opened.opener = null;
+        closeUploadLeaveDialog();
+    });
+    $('#uploadStayHere').on('click', closeUploadLeaveDialog);
+    $('#uploadLeaveAnyway').on('click', function() {
+        var destination = pendingNavigation;
+        closeUploadLeaveDialog();
+        if (!destination) return;
+        if (destination === 'logout') {
+            window.ajaxPost($('#logoutLink').data('url'), {}, function(res) {
+                if (res.code == 200) {
+                    allowNavigation = true;
+                    window.location.href = res.url || document.body.getAttribute('data-login-url') || '/login.html';
+                }
+            });
+        } else {
+            allowNavigation = true;
+            window.location.assign(destination);
+        }
+    });
+    $('#uploadLeaveDialog').on('click', function(event) {
+        if (event.target === this) closeUploadLeaveDialog();
+    });
+    $(document).on('keydown', function(event) {
+        if (event.key === 'Escape' && !$('#uploadLeaveDialog').prop('hidden')) closeUploadLeaveDialog();
+    });
+
+    if (RESUME_TASK_ID > 0) {
+        $.get('{:url("index/file/getUploadTasks")}', {task_id: RESUME_TASK_ID, status: 0}, function(res) {
+            var task = res && res.code == 200 && res.data && res.data[0];
+            if (!task || Number(task.id) !== RESUME_TASK_ID) {
+                layer.msg('续传任务不存在或已结束，请重新上传文件', {icon: 0});
+                return;
+            }
+            if (Number(task.total_chunks) !== Math.ceil(Number(task.total_size) / CHUNK_SIZE)) {
+                layer.msg('上传分片大小已变化，无法继续旧任务，请重新上传文件', {icon: 2});
+                return;
+            }
+            resumeTask = task;
+            $('#resumeTaskDescription').text(task.file_name + ' · ' + task.size_text + ' · 已上传 ' + task.progress + '%');
+            $('#resumeTaskCard').removeAttr('hidden');
+        }, 'json').fail(function() {
+            layer.msg('读取续传任务失败，请刷新页面重试', {icon: 2});
+        });
+    }
+
+    $('#resumeSelectBtn').on('click', function() { $('#resumeFileInput').trigger('click'); });
+    $('#resumeFileInput').on('change', function() {
+        var file = this.files && this.files[0];
+        this.value = '';
+        if (!file || !resumeTask) return;
+        if (file.name !== resumeTask.file_name || file.size !== Number(resumeTask.total_size)) {
+            layer.msg('请选择原文件：名称与大小必须和任务一致', {icon: 2});
+            return;
+        }
+        var alreadyQueued = uploads.some(function(item) { return item.upload_id === resumeTask.upload_id; });
+        if (alreadyQueued) {
+            layer.msg('这个任务已经在上传队列中', {icon: 0});
+            return;
+        }
+        uploads.push({
+            id: Date.now() + '_resume', file: file, name: file.name, size: file.size,
+            needChunk: true, upload_id: resumeTask.upload_id,
+            total_chunks: Number(resumeTask.total_chunks), status: 'wait',
+            progress: Number(resumeTask.progress), errorMsg: '',
+            webkitRelativePath: '', isFolderUpload: false
+        });
+        $('#resumeTaskCard').attr('hidden', true);
+        renderQueue();
+        startAll();
+    });
     
     $('#fileSelectBtn').on('click', function(e) {
         e.preventDefault();

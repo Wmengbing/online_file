@@ -29,7 +29,7 @@
         </div>
         <div class="page-heading-actions">
             <a href="{:url('index/file/createFolder', ['parent_id' => $parent_id ?: $default_parent_id])}" class="btn btn-default"><i class="fa fa-folder-o"></i> 新建文件夹</a>
-            <a href="{:url('index/file/upload', ['parent_id' => $parent_id ?: $default_parent_id])}" class="btn btn-primary"><i class="fa fa-cloud-upload"></i> 上传文件</a>
+            <a href="{:url('index/file/upload', ['parent_id' => $parent_id ?: $default_parent_id])}" class="btn btn-primary" target="_blank" rel="noopener"><i class="fa fa-cloud-upload"></i> 上传文件 <i class="fa fa-external-link"></i></a>
         </div>
     </header>
 
@@ -170,7 +170,7 @@
             <span class="file-empty-icon"><i class="fa fa-folder-open-o"></i></span>
             <h3>{if $keyword}没有找到相关文件{else}这里还是空的{/if}</h3>
             <p>{if $keyword}换个关键词试试，或者返回查看全部文件{else}上传文件或新建文件夹，开始整理你的资料{/if}</p>
-            {if !$keyword}<a href="{:url('index/file/upload', ['parent_id' => $parent_id ?: $default_parent_id])}" class="btn btn-primary"><i class="fa fa-cloud-upload"></i> 上传第一个文件</a>{/if}
+            {if !$keyword}<a href="{:url('index/file/upload', ['parent_id' => $parent_id ?: $default_parent_id])}" class="btn btn-primary" target="_blank" rel="noopener"><i class="fa fa-cloud-upload"></i> 上传第一个文件 <i class="fa fa-external-link"></i></a>{/if}
         </div>
         {/if}
     </div>

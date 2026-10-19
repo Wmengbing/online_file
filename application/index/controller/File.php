@@ -243,6 +243,7 @@ class File extends Base
         $this->assign('parent_id', $parent_id);
         $this->assign('chunk_size', (int)app_cfg('chunk_size', 5242880));
         $this->assign('chunk_size_text', format_file_size((int)app_cfg('chunk_size', 5242880)));
+        $this->assign('resume_task_id', max(0, (int)input('resume_task_id', 0)));
         return $this->fetch();
     }
 
@@ -2488,10 +2489,9 @@ class File extends Base
         $tasks = $query->order('created_at', 'desc')->select();
         
         foreach ($tasks as &$task) {
-            $task['progress'] = $task['total_chunks'] > 0 ? round($task['uploaded_chunks'] / $task['total_chunks'] * 100) : 0;
-            $task['size_text'] = format_file_size($task['total_size']);
-            $task['status_text'] = [0 => '上传中', 1 => '已完成', 2 => '失败'][$task['status']] ?? '未知';
+            $this->decorateUploadTask($task);
         }
+        unset($task);
         
         $this->assign('tasks', $tasks);
         $this->assign('status', $status);
@@ -2514,16 +2514,31 @@ class File extends Base
         if ($status !== '') {
             $query->where('status', (int)$status);
         }
+        $task_id = (int)input('task_id', 0);
+        if ($task_id > 0) {
+            $query->where('id', $task_id);
+        }
         
         $tasks = $query->order('created_at', 'desc')->select();
         
         foreach ($tasks as &$task) {
-            $task['progress'] = $task['total_chunks'] > 0 ? round($task['uploaded_chunks'] / $task['total_chunks'] * 100) : 0;
-            $task['size_text'] = format_file_size($task['total_size']);
-            $task['status_text'] = [0 => '上传中', 1 => '已完成', 2 => '失败'][$task['status']] ?? '未知';
+            $this->decorateUploadTask($task);
         }
+        unset($task);
         
         return json(['code' => 200, 'data' => $tasks]);
+    }
+
+    private function decorateUploadTask(&$task)
+    {
+        $status = (int)$task['status'];
+        $task['is_stale'] = $status === 0 && strtotime($task['updated_at']) < time() - 600;
+        $progress = (int)($task['total_chunks'] > 0
+            ? round($task['uploaded_chunks'] / $task['total_chunks'] * 100) : 0);
+        $task['progress'] = $status === 1 ? 100 : min(99, max(0, $progress));
+        $task['size_text'] = format_file_size($task['total_size']);
+        $task['status_text'] = $task['is_stale'] ? '待续传'
+            : ([0 => '上传中', 1 => '已完成', 2 => '失败'][$status] ?? '未知');
     }
 
     /**

@@ -1528,6 +1528,149 @@ textarea {
 }
 
 /* Upload center */
+.upload-active-notice {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 18px;
+    padding: 16px 18px;
+    border: 1px solid #f4c66d;
+    border-radius: 14px;
+    background: #fff8e8;
+    box-shadow: 0 8px 24px rgba(146, 64, 14, .08);
+}
+
+.upload-active-notice[hidden],
+.upload-leave-overlay[hidden] {
+    display: none;
+}
+
+.upload-active-icon,
+.upload-leave-icon {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: #fef0c7;
+    color: #a94a0c;
+    font-size: 20px;
+}
+
+.upload-active-copy {
+    flex: 1;
+    min-width: 0;
+}
+
+.upload-active-copy strong {
+    color: #713f12;
+    font-size: 15px;
+}
+
+.upload-active-copy p {
+    margin: 4px 0 0;
+    color: #855528;
+    font-size: 13px;
+}
+
+.upload-leave-overlay {
+    position: fixed;
+    z-index: 2000;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(15, 23, 42, .65);
+}
+
+.upload-leave-panel {
+    width: min(100%, 480px);
+    padding: 30px;
+    border: 1px solid #f8d98b;
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 26px 80px rgba(15, 23, 42, .25);
+    text-align: center;
+}
+
+.upload-leave-icon {
+    width: 58px;
+    height: 58px;
+    margin: 0 auto 14px;
+    border-radius: 18px;
+    font-size: 25px;
+}
+
+.upload-leave-panel h2 {
+    margin: 0 0 10px;
+    color: #172033;
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.upload-leave-panel p {
+    margin: 0 0 22px;
+    color: #56647a;
+    line-height: 1.7;
+}
+
+.upload-leave-actions {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.upload-leave-actions [hidden] {
+    display: none;
+}
+
+.upload-leave-danger {
+    margin-top: 18px;
+    padding: 4px;
+    border: 0;
+    background: transparent;
+    color: #b42318;
+    text-decoration: underline;
+}
+
+.upload-leave-danger:hover,
+.upload-leave-danger:focus {
+    color: #8f1c14;
+}
+
+@media (max-width: 767px) {
+    .upload-active-notice {
+        flex-wrap: wrap;
+    }
+
+    .upload-active-notice > .btn {
+        width: 100%;
+    }
+
+    .upload-leave-panel {
+        padding: 24px 20px;
+    }
+}
+
+.upload-resume-card {
+    margin-bottom: 18px;
+}
+
+.upload-resume-card[hidden] {
+    display: none;
+}
+
+.upload-resume-description {
+    margin: 8px 0;
+    overflow-wrap: anywhere;
+}
+
+.upload-resume-note {
+    margin: 0 0 10px;
+}
+
 .upload-landing {
     display: grid;
     grid-template-columns: minmax(0, 1.65fr) minmax(260px, .7fr);
