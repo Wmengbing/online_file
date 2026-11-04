@@ -15,6 +15,8 @@ use think\facade\Env;
 // +----------------------------------------------------------------------
 
 return [
+    // 与同一 IP 上的其他站点使用不同的 Session Cookie 名称（Cookie 不按端口隔离）
+    'name'           => 'ONLINE_FILE_SESSID',
     'id'             => '',
     // SESSION_ID的提交变量,解决flash上传跨域
     'var_session_id' => '',
