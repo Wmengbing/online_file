@@ -75,7 +75,10 @@
                         <i class="fa fa-file file-icon file"></i> 文件
                         {/if}
                     </th>
-                    <td class="detail-file-name">{$file.name}</td>
+                    <td class="detail-file-name">
+                        {$file.name}
+                        {if $file.type == 1}<span class="file-confirmed-badge" {if $file.is_confirmed}{else}hidden{/if}><i class="fa fa-check-circle" aria-hidden="true"></i> 已确认</span>{/if}
+                    </td>
                 </tr>
                 {if $file.type == 1}
                 <tr><th>文件大小</th><td>{$file.size_text}</td></tr>
@@ -92,6 +95,9 @@
                 <a href="{:url('index/file/preview', ['file_id' => $file.id])}" class="btn btn-success"><i class="fa fa-eye"></i> 预览</a>
                 <a href="{:url('index/file/download', ['file_id' => $file.id])}" class="btn btn-primary"><i class="fa fa-download"></i> 下载</a>
                 <a href="{:url('index/share/create', ['file_id' => $file.id])}" class="btn btn-warning"><i class="fa fa-share"></i> 分享</a>
+                {if $file.can_confirm}
+                <button type="button" class="btn file-confirm-action {if $file.is_confirmed}is-confirmed{/if}" data-confirm-file data-confirm-url="{:url('index/file/setConfirmation')}" data-file-id="{$file.id}" data-confirmed="{$file.is_confirmed ? 1 : 0}" aria-label="{if $file.is_confirmed}取消确认{else}确认{/if} {$file.name}"><i class="fa fa-check-circle-o" aria-hidden="true"></i> <span class="file-confirm-action-label">{if $file.is_confirmed}取消确认{else}确认{/if}</span></button>
+                {/if}
                 {/if}
                 <a href="{:url('index/file/copy')}?file_ids[]={$file.id}&source_parent_id={$file.parent_id}" class="btn btn-default"><i class="fa fa-copy"></i> 复制到</a>
                 {if $file.can_manage}

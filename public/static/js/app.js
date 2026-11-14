@@ -39,7 +39,7 @@
         }
     }
 
-    window.ajaxPost = function (url, data, callback) {
+    window.ajaxPost = function (url, data, callback, successDuration) {
         var isFormData = data instanceof FormData;
         $.ajax({
             url: url,
@@ -50,7 +50,9 @@
             dataType: 'json',
             success: function (res) {
                 if (res.code == 200) {
-                    layer.msg(res.msg || '操作成功', {icon: 1}, function () {
+                    var toastOptions = {icon: 1};
+                    if (successDuration) toastOptions.time = successDuration;
+                    layer.msg(res.msg || '操作成功', toastOptions, function () {
                         if (callback) {
                             callback(res);
                         } else {
@@ -73,7 +75,10 @@
         if (submitting) {
             $button.data('original-html', $button.html());
             $button.prop('disabled', true).addClass('disabled');
-            $button.html('<i class="fa fa-circle-o-notch fa-spin"></i> 正在提交');
+            var compact = $button.is('[data-confirm-file]') && $button.closest('.row-actions').length;
+            $button.html(compact
+                ? '<i class="fa fa-circle-o-notch fa-spin" aria-hidden="true"></i>'
+                : '<i class="fa fa-circle-o-notch fa-spin"></i> 正在提交');
         } else {
             $button.prop('disabled', false).removeClass('disabled');
             if ($button.data('original-html')) {
@@ -81,6 +86,31 @@
             }
         }
     }
+
+    $(document).on('click', '[data-confirm-file]', function () {
+        var $button = $(this);
+        var confirmed = Number($button.data('confirmed')) === 1;
+        var $scope = $button.closest('.file-item, .detail-card');
+
+        setSubmitting($button, true);
+        window.ajaxPost($button.data('confirm-url'), {
+            file_id: $button.data('file-id'),
+            confirmed: confirmed ? 0 : 1
+        }, function (res) {
+            setSubmitting($button, false);
+            if (res.code != 200 || !res.data) return;
+
+            var nextConfirmed = Number(res.data.confirmed) === 1;
+            var nextLabel = nextConfirmed ? '取消确认' : '确认';
+            $button.data('confirmed', nextConfirmed ? 1 : 0)
+                .attr('data-confirmed', nextConfirmed ? '1' : '0')
+                .toggleClass('is-confirmed', nextConfirmed)
+                .attr('title', nextLabel + '文件')
+                .attr('aria-label', nextLabel + '文件');
+            $button.find('.file-confirm-action-label').text(nextLabel);
+            $scope.find('.file-confirmed-badge').prop('hidden', !nextConfirmed);
+        }, 1000);
+    });
 
     $(document).on('submit', 'form.ajax-form', function (event) {
         event.preventDefault();

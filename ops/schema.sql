@@ -114,6 +114,14 @@ CREATE TABLE IF NOT EXISTS `file_shares` (
   KEY `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS `file_confirmations` (
+  `file_id` int unsigned NOT NULL,
+  `confirmed_by` int unsigned NOT NULL,
+  `confirmed_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`file_id`),
+  KEY `idx_confirmed_by` (`confirmed_by`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS `file_internal_shares` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `owner_id` int unsigned NOT NULL,

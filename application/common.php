@@ -364,6 +364,7 @@ function hard_delete_file_tree($user_id, array $root_ids)
     // 清理关联分享与内部共享
     Db::name('file_shares')->where('file_id', 'in', $all_ids)->delete();
     Db::name('file_internal_shares')->where('file_id', 'in', $all_ids)->delete();
+    Db::name('file_confirmations')->where('file_id', 'in', $all_ids)->delete();
 
     // 删除数据库记录
     if (!empty($recycle_ids)) {

@@ -6,6 +6,7 @@ use think\Db;
 class File extends Base
 {
     protected $upload_path;
+    private $confirmation_super_admin_cache = null;
 
     protected function initialize()
     {
@@ -106,6 +107,13 @@ class File extends Base
         }
 
         $files = $query->page($page, $page_size)->select();
+
+        $confirmed_at_by_file = [];
+        if (!empty($files)) {
+            $confirmed_at_by_file = Db::name('file_confirmations')
+                ->where('file_id', 'in', array_column($files, 'id'))
+                ->column('confirmed_at', 'file_id');
+        }
         
         // 获取所有文件上传者的用户ID
         $user_ids = array_unique(array_column($files, 'user_id'));
@@ -121,6 +129,10 @@ class File extends Base
                 $file['size_text'] = format_file_size($file['size']);
             }
             $file['can_manage'] = $this->canManageFile($file);
+            $file['can_confirm'] = $this->canConfirmFile($file);
+            $file['confirmed_at'] = isset($confirmed_at_by_file[$file['id']])
+                ? $confirmed_at_by_file[$file['id']] : '';
+            $file['is_confirmed'] = $file['confirmed_at'] !== '';
             // 添加上传者用户名
             $file['uploader_username'] = isset($users[$file['user_id']]) ? $users[$file['user_id']] : '未知用户';
             if ($is_global_search) {
@@ -162,6 +174,80 @@ class File extends Base
         $this->assign('is_admin', $is_admin);
 
         return $this->fetch();
+    }
+
+    /** 仅超级管理员或该文件所在角色目录的管理者可以确认文件。 */
+    private function canConfirmFile($file)
+    {
+        if (empty($file) || (int)$file['type'] !== 1 || (int)$file['status'] !== 1
+            || !$this->canAccessFile($file)) {
+            return false;
+        }
+
+        if ($this->confirmation_super_admin_cache === null) {
+            $this->confirmation_super_admin_cache = (bool)Db::name('user_roles')
+                ->alias('ur')
+                ->join('roles r', 'r.id = ur.role_id')
+                ->where('ur.user_id', $this->user_id)
+                ->where('r.code', 'super_admin')
+                ->where('r.status', 1)
+                ->value('ur.role_id');
+        }
+        if ($this->confirmation_super_admin_cache) {
+            return true;
+        }
+
+        $managed_role_ids = $this->getManagedRoleIds();
+        if (empty($managed_role_ids)) {
+            return false;
+        }
+
+        return !empty(array_intersect($managed_role_ids, $this->getFileRoleIds($file)));
+    }
+
+    public function setConfirmation()
+    {
+        $this->requirePost();
+        $this->checkLogin();
+
+        $file_id = (int)input('file_id', 0);
+        $requested_state = input('confirmed', null);
+        if ($file_id <= 0 || !in_array((string)$requested_state, ['0', '1'], true)) {
+            return json(['code' => 400, 'msg' => '确认状态无效'], 400);
+        }
+
+        $file = Db::name('files')
+            ->where('id', $file_id)
+            ->where('type', 1)
+            ->where('status', 1)
+            ->find();
+        if (!$file || !$this->canAccessFile($file)) {
+            return json(['code' => 404, 'msg' => '文件不存在'], 404);
+        }
+        if (!$this->canConfirmFile($file)) {
+            return json(['code' => 403, 'msg' => '无权限确认此文件'], 403);
+        }
+
+        $confirmed = (int)$requested_state;
+        if ($confirmed === 1) {
+            // 主键为 file_id；重复请求也只保留一条确认记录。
+            Db::name('file_confirmations')->insert([
+                'file_id'      => $file_id,
+                'confirmed_by' => $this->user_id,
+                'confirmed_at' => date('Y-m-d H:i:s'),
+            ], true);
+        } else {
+            Db::name('file_confirmations')->where('file_id', $file_id)->delete();
+        }
+
+        log_operation('file', $confirmed ? 'confirm' : 'unconfirm',
+            ($confirmed ? '确认文件 ID:' : '取消确认文件 ID:') . $file_id);
+
+        return json([
+            'code' => 200,
+            'msg'  => $confirmed ? '文件已确认' : '已取消确认',
+            'data' => ['confirmed' => $confirmed],
+        ]);
     }
 
     public function createFolder()
@@ -2597,6 +2683,11 @@ class File extends Base
         
         // 检查用户是否有管理权限
         $file['can_manage'] = $this->canManageFile($file);
+        $file['can_confirm'] = $this->canConfirmFile($file);
+        $file['confirmed_at'] = (string)Db::name('file_confirmations')
+            ->where('file_id', $file_id)
+            ->value('confirmed_at');
+        $file['is_confirmed'] = $file['confirmed_at'] !== '';
         
         $this->assign('file', $file);
         return $this->fetch();

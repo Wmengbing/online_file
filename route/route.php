@@ -20,6 +20,7 @@ Route::any('file/rename', 'index/file/rename')->completeMatch();
 Route::any('file/move', 'index/file/move')->completeMatch();
 Route::any('file/copy', 'index/file/copy')->completeMatch();
 Route::post('file/delete', 'index/file/delete')->completeMatch();
+Route::post('file/setConfirmation', 'index/file/setConfirmation')->completeMatch();
 Route::get('file/detail', 'index/file/detail')->completeMatch();
 Route::get('file/preview', 'index/file/preview')->completeMatch();
 Route::get('file/previewPdf', 'index/file/previewPdf')->completeMatch();

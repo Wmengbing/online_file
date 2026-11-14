@@ -940,7 +940,7 @@ textarea {
 }
 
 .file-table .col-actions {
-    width: 130px;
+    width: 170px;
 }
 
 .file-table > thead > tr > th {
@@ -1068,6 +1068,63 @@ textarea {
     min-width: 0;
 }
 
+.file-name-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+}
+
+.file-name-row .file-name {
+    min-width: 0;
+}
+
+.file-confirmed-badge {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border: 1px solid #abefc6;
+    border-radius: 999px;
+    background: #ecfdf3;
+    color: #067647;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.file-confirmed-badge[hidden] {
+    display: none;
+}
+
+.file-confirm-action {
+    border: 1px solid #c7d7fe;
+    background: #f5f8ff;
+    color: #285ac7;
+}
+
+.file-confirm-action:hover,
+.file-confirm-action:focus {
+    border-color: #92b4fb;
+    background: #eaf1ff;
+    color: #1748ad;
+}
+
+.file-confirm-action.is-confirmed {
+    border-color: #abefc6;
+    background: #ecfdf3;
+    color: #067647;
+}
+
+.file-confirm-action.is-confirmed:hover,
+.file-confirm-action.is-confirmed:focus {
+    border-color: #75d6a0;
+    background: #d9f9e7;
+    color: #05603a;
+}
+
 .file-name {
     display: block;
     overflow: hidden;
@@ -1128,6 +1185,10 @@ textarea {
 
 .row-actions .btn {
     min-width: 31px;
+}
+
+.row-actions .file-confirm-action-label {
+    display: none;
 }
 
 .row-actions .btn-group {

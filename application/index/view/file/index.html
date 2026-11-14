@@ -114,7 +114,10 @@
                                 {else}
                                 <span class="file-type-icon"><i class="fa fa-file-o"></i></span>
                                 <div class="file-primary-text">
-                                    <a class="file-name" href="{:url('index/file/detail', ['file_id' => $file.id])}">{$file.name}</a>
+                                    <div class="file-name-row">
+                                        <a class="file-name" href="{:url('index/file/detail', ['file_id' => $file.id])}">{$file.name}</a>
+                                        <span class="file-confirmed-badge" {if $file.is_confirmed}{else}hidden{/if}><i class="fa fa-check-circle" aria-hidden="true"></i> 已确认</span>
+                                    </div>
                                     <span class="file-subline">{$file.size_text|default='-'} · {$file.created_at}</span>
                                     <span class="file-extension">{$file.extension|default='FILE'}</span>
                                     {if $is_global_search}<a class="file-location" href="{$file.location_url}"><i class="fa fa-map-marker"></i> {$file.location_text}</a>{/if}
@@ -129,6 +132,9 @@
                             {if $file.type == 1}
                                 <a href="{:url('index/file/preview', ['file_id' => $file.id])}" class="btn btn-xs btn-success" title="预览" aria-label="预览 {$file.name}"><i class="fa fa-eye"></i></a>
                                 <a href="{:url('index/file/download', ['file_id' => $file.id])}" class="btn btn-xs btn-primary" title="下载" aria-label="下载 {$file.name}"><i class="fa fa-download"></i></a>
+                                {if $file.can_confirm}
+                                <button type="button" class="btn btn-xs file-confirm-action {if $file.is_confirmed}is-confirmed{/if}" data-confirm-file data-confirm-url="{:url('index/file/setConfirmation')}" data-file-id="{$file.id}" data-confirmed="{$file.is_confirmed ? 1 : 0}" title="{if $file.is_confirmed}取消确认{else}确认{/if} {$file.name}" aria-label="{if $file.is_confirmed}取消确认{else}确认{/if} {$file.name}"><i class="fa fa-check-circle-o" aria-hidden="true"></i><span class="file-confirm-action-label">{if $file.is_confirmed}取消确认{else}确认{/if}</span></button>
+                                {/if}
                             {else}
                                 <a href="{:url('index/file/index', ['parent_id' => $file.id])}" class="btn btn-xs btn-primary" title="打开" aria-label="打开 {$file.name}"><i class="fa fa-folder-open-o"></i></a>
                             {/if}
